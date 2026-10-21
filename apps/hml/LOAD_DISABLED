@@ -1,0 +1,6 @@
+CARGA / ESTRESSE DESATIVADOS NESTE COMPUTADOR.
+
+Este arquivo bloqueia apps/hml/load.js e apps/hml/sampler.js (ver guardLoad em apps/hml/lib/proc.js).
+Os testes de carga anteriores saturaram o computador corporativo (PostgreSQL ~94% de CPU, API ~325%) e o amostrador
+abriu dezenas de janelas de CMD/PowerShell. Carga só roda em outra máquina, com planejamento próprio:
+nela, remover este arquivo e definir HML_ALLOW_LOAD=I_AM_NOT_ON_A_CORPORATE_PC.

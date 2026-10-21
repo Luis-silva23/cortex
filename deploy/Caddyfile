@@ -1,0 +1,37 @@
+# Proxy reverso da HOMOLOGAÇÃO (docker-compose.staging.yml). O Caddy obtém e renova o certificado TLS sozinho para cada domínio
+# informado, redireciona HTTP→HTTPS e envia X-Forwarded-Proto/For para a API (que confia em 1 salto: TRUST_PROXY=1). Nenhum domínio é
+# inventado: STAGING_DOMAIN vem do .env e os quatro nomes (api., admin., super., balcao.) precisam existir no DNS apontando para este host.
+#   https://api.<STAGING_DOMAIN>    → API            (aplicativos PDV/mobile/TV e os painéis falam só com esta)
+#   https://admin.<STAGING_DOMAIN>  → Admin Web
+#   https://super.<STAGING_DOMAIN>  → Super Admin
+#   https://balcao.<STAGING_DOMAIN> → Balcão (aplicativo de atendimento)
+# PostgreSQL e Redis NUNCA são alcançáveis por este proxy.
+
+(seguranca) {
+	encode gzip
+	# HSTS: o navegador/aplicativo nunca mais tenta HTTP neste domínio.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+}
+
+api.{$STAGING_DOMAIN} {
+	import seguranca
+	reverse_proxy api:3001 {
+		health_uri /api/health/live
+		health_interval 15s
+	}
+}
+
+admin.{$STAGING_DOMAIN} {
+	import seguranca
+	reverse_proxy admin-web:3002
+}
+
+super.{$STAGING_DOMAIN} {
+	import seguranca
+	reverse_proxy super-admin:3000
+}
+
+balcao.{$STAGING_DOMAIN} {
+	import seguranca
+	reverse_proxy balcao:80
+}

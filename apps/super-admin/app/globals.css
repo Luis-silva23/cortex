@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Tokens de tema — CÓRTEX (mesmos valores de apps/admin-web/app/globals.css): base preto/naval, cinza e
+ * off-white. Verde/amarelo/vermelho (--success/--warning/--danger) existem SÓ para indicadores semânticos
+ * (status, alertas); KPIs e valores numéricos usam --foreground. Sem roxo, sem neon, sem gradientes.
+ */
+@layer base {
+  :root {
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 222 47% 14%;
+    --primary-foreground: 210 20% 98%;
+    --secondary: 214 32% 94%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 214 32% 94%;
+    --muted-foreground: 215 16% 38%;
+    --accent: 214 32% 95%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 42%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 25% 88%;
+    --input: 214 25% 80%;
+    --ring: 222 47% 30%;
+    --radius: 0.5rem;
+
+    --success: 142 64% 27%;
+    --success-soft: 142 55% 92%;
+    --warning: 36 92% 27%;
+    --warning-soft: 48 96% 88%;
+    --danger: 0 72% 42%;
+    --danger-soft: 0 86% 96%;
+    --danger-foreground: 0 0% 100%;
+  }
+
+  .dark {
+    /* Escuro = paleta oficial do quadro de marca CÓRTEX (mesmos valores do Admin Web):
+       #050A10 naval profundo (fundo) · #10171F cinza grafite (cards) · #1C2733 cinza borda · #F6F7F9 off-white (texto)
+       #9AA5B1 cinza texto · #D6A84F atenção · #C95C5C erro. O quadro não traz verde; --success segue derivado. */
+    --background: 213 52% 4%;
+    --foreground: 220 20% 97%;
+    --card: 212 32% 9%;
+    --card-foreground: 220 20% 97%;
+    --popover: 212 32% 9%;
+    --popover-foreground: 220 20% 97%;
+    --primary: 220 20% 97%;
+    --primary-foreground: 213 52% 4%;
+    --secondary: 211 29% 13%;
+    --secondary-foreground: 220 20% 97%;
+    --muted: 211 29% 13%;
+    --muted-foreground: 211 13% 65%;
+    --accent: 211 29% 13%;
+    --accent-foreground: 220 20% 97%;
+    --destructive: 0 50% 58%;
+    --destructive-foreground: 213 52% 4%;
+    --border: 211 29% 16%;
+    --input: 211 25% 24%;
+    --ring: 214 32% 70%;
+
+    --success: 142 55% 58%;
+    --success-soft: 142 45% 11%;
+    --warning: 40 62% 58%;
+    --warning-soft: 40 45% 11%;
+    --danger: 0 50% 58%;
+    --danger-soft: 0 45% 9%;
+    --danger-foreground: 213 52% 4%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Dica dos gráficos (recharts): no primeiro quadro, antes de medir o tamanho da dica, a biblioteca a mostra no canto superior esquerdo
+   (sem `transform`). Escondida até ser posicionada; depois de posicionada o `transform` existe e ela aparece ao lado do cursor. */
+.recharts-tooltip-wrapper:not([style*="transform"]) { visibility: hidden !important; }

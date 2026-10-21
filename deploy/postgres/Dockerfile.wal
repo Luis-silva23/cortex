@@ -1,0 +1,6 @@
+# Servidor PostgreSQL do CÓRTEX com arquivamento contínuo de WAL (PITR, decisão 149). Mesma versão/base do `postgres:18-alpine` do compose principal;
+# só garante `openssl` (cifragem AES-256 dos segmentos) e `gzip` para os scripts deploy/backup/wal-archive.sh e wal-fetch.sh. Sem segredo na imagem.
+FROM postgres:18-alpine
+RUN apk add --no-cache openssl gzip
+# pasta do arquivo de WAL com o dono certo: o volume nomeado `wal_archive` herda essa permissão na 1ª montagem (senão nasce root e o archive_command falha)
+RUN mkdir -p /wal-archive && chown postgres:postgres /wal-archive && chmod 700 /wal-archive

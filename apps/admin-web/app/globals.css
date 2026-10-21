@@ -1,0 +1,198 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Altura da janela: `100vh` inclui a área sob a barra do navegador em celular
+   (o fim da página fica escondido); `100dvh` acompanha a área realmente
+   visível. O `100vh` antes dele é a reserva para navegadores sem `dvh`. */
+@layer utilities {
+  .min-h-app {
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+  .h-app {
+    height: 100vh;
+    height: 100dvh;
+  }
+}
+
+/*
+ * Tokens de tema — CÓRTEX / Lógica de Negócios (Tema Claro, Escuro e
+ * Automático). Base: preto/naval, cinza e off-white. Verde/vermelho/amarelo
+ * (--success/--danger/--warning) existem SÓ para indicadores semânticos
+ * (status, setas, alertas); KPIs e valores numéricos usam --foreground.
+ * Sem roxo, sem neon, sem gradientes.
+ *
+ * O repositório não traz os arquivos oficiais do design system: estes valores
+ * foram derivados da especificação escrita e devem ser conferidos contra os
+ * tokens oficiais (ver docs/CORTEX/historico/registro-de-auditoria-2026-09-14-a-25.md).
+ */
+@layer base {
+  :root {
+    /* Claro: off-white + navy */
+    --background: 210 20% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --muted: 214 32% 94%;
+    --muted-foreground: 215 16% 38%;
+    --accent: 214 32% 95%;
+    --accent-foreground: 222 47% 11%;
+    --border: 214 25% 88%;
+    --input: 214 25% 80%;
+    --ring: 222 47% 30%;
+    --primary: 222 47% 14%;
+    --primary-foreground: 210 20% 98%;
+
+    --success: 142 64% 27%;
+    --success-soft: 142 55% 92%;
+    --warning: 36 92% 27%;
+    --warning-soft: 48 96% 88%;
+    --danger: 0 72% 42%;
+    --danger-soft: 0 86% 96%;
+    --danger-foreground: 0 0% 100%;
+
+    /* Gráficos: --chart-1 é a série principal (azul naval, a cor da marca; o azul vivo e o ciano de antes eram de template) e
+       --chart-2 a secundária/comparação. Não são estado: sem verde/vermelho/amarelo. Sem paleta categórica: a marca não tem uma. */
+    --chart-1: 215 38% 24%;
+    --chart-2: 215 19% 35%;
+    --chart-3: 200 24% 38%;
+    --chart-4: 215 16% 47%;
+    --chart-5: 215 20% 65%;
+    --chart-6: 215 25% 27%;
+
+    /* Véu de modal/menu: naval profundo nos dois temas (usado com opacidade). */
+    --overlay: 213 52% 4%;
+
+    color-scheme: light;
+  }
+
+  .dark {
+    /* Escuro = paleta oficial do quadro de marca CÓRTEX:
+       #050A10 naval profundo (fundo) · #091018 azul noturno (superfícies) · #10171F cinza grafite (cards)
+       #1C2733 cinza borda · #F6F7F9 off-white (texto) · #9AA5B1 cinza texto · #D6A84F atenção · #C95C5C erro.
+       O quadro não traz verde; --success segue derivado. */
+    --background: 213 52% 4%;
+    --foreground: 220 20% 97%;
+    --card: 212 32% 9%;
+    --card-foreground: 220 20% 97%;
+    --muted: 212 45% 7%;
+    --muted-foreground: 211 13% 65%;
+    --accent: 211 29% 13%;
+    --accent-foreground: 220 20% 97%;
+    --border: 211 29% 16%;
+    --input: 211 25% 24%;
+    --ring: 214 32% 70%;
+    --primary: 220 20% 97%;
+    --primary-foreground: 213 52% 4%;
+
+    --success: 142 55% 58%;
+    --success-soft: 142 45% 11%;
+    --warning: 40 62% 58%;
+    --warning-soft: 40 45% 11%;
+    --danger: 0 50% 58%;
+    --danger-soft: 0 45% 9%;
+    --danger-foreground: 213 52% 4%;
+
+    --chart-1: 214 30% 84%;
+    --chart-2: 211 13% 65%;
+    --chart-3: 200 25% 62%;
+    --chart-4: 215 16% 50%;
+    --chart-5: 215 20% 78%;
+    --chart-6: 211 29% 36%;
+
+    --overlay: 213 52% 4%;
+
+    color-scheme: dark;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/*
+ * ─────────────────────────────────────────────────────────────────────────
+ * Camada de compatibilidade do Tema Escuro para telas ANTIGAS (transitória)
+ * ─────────────────────────────────────────────────────────────────────────
+ * As telas anteriores ao design system escrevem cores fixas do Tailwind
+ * (bg-white, text-gray-500, bg-red-50...). Sem isto, ativar o tema
+ * escuro/automático deixaria texto escuro sobre fundo escuro nessas telas.
+ * Só vale sob `.dark` — o Tema Claro fica exatamente como era. Telas novas e
+ * os componentes de components/ui usam os tokens acima e NÃO dependem disto.
+ * Remover conforme cada tela for migrada para tokens (docs/CORTEX/historico/registro-de-auditoria-2026-09-14-a-25.md).
+ */
+.dark .bg-white { background-color: hsl(var(--card)); }
+.dark .bg-gray-50 { background-color: hsl(var(--background)); }
+.dark .bg-gray-100,
+.dark .bg-gray-200 { background-color: hsl(var(--muted)); }
+.dark .hover\:bg-gray-50:hover,
+.dark .hover\:bg-gray-100:hover,
+.dark .hover\:bg-gray-200:hover { background-color: hsl(var(--accent)); }
+
+.dark .text-gray-900,
+.dark .text-gray-800,
+.dark .text-gray-700 { color: hsl(var(--foreground)); }
+.dark .text-gray-600,
+.dark .text-gray-500,
+.dark .text-gray-400,
+.dark .text-gray-300 { color: hsl(var(--muted-foreground)); }
+.dark .hover\:text-gray-900:hover { color: hsl(var(--foreground)); }
+
+.dark .border-gray-200,
+.dark .border-gray-300,
+.dark .hover\:border-gray-400:hover { border-color: hsl(var(--border)); }
+
+/* Semânticas antigas: fundos claros viram tons escuros do mesmo significado */
+.dark .bg-red-50,
+.dark .bg-red-100 { background-color: hsl(var(--danger-soft)); }
+.dark .bg-green-50,
+.dark .bg-green-100 { background-color: hsl(var(--success-soft)); }
+.dark .bg-amber-50,
+.dark .bg-yellow-50,
+.dark .bg-yellow-100 { background-color: hsl(var(--warning-soft)); }
+.dark .bg-blue-50,
+.dark .bg-blue-100 { background-color: hsl(var(--muted)); }
+.dark .hover\:bg-red-50:hover { background-color: hsl(var(--danger-soft)); }
+
+.dark .text-red-400,
+.dark .text-red-500,
+.dark .text-red-600,
+.dark .text-red-700,
+.dark .text-red-800,
+.dark .text-red-900,
+.dark .hover\:text-red-600:hover { color: hsl(var(--danger)); }
+.dark .text-green-600,
+.dark .text-green-700,
+.dark .text-green-800,
+.dark .text-green-900 { color: hsl(var(--success)); }
+.dark .text-amber-500,
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-yellow-600,
+.dark .text-yellow-700,
+.dark .text-yellow-800,
+.dark .text-yellow-900,
+.dark .text-orange-600 { color: hsl(var(--warning)); }
+.dark .text-blue-600,
+.dark .text-blue-700,
+.dark .text-blue-800,
+.dark .text-blue-900 { color: hsl(213 94% 76%); }
+
+.dark .border-red-200,
+.dark .border-red-400 { border-color: hsl(var(--danger) / 0.4); }
+.dark .border-green-200,
+.dark .border-green-400 { border-color: hsl(var(--success) / 0.4); }
+.dark .border-amber-200,
+.dark .border-yellow-200 { border-color: hsl(var(--warning) / 0.4); }
+.dark .border-blue-200,
+.dark .border-blue-300 { border-color: hsl(var(--border)); }
+
+/* Dica dos gráficos (recharts): no primeiro quadro, antes de medir o tamanho da dica, a biblioteca a mostra no canto superior esquerdo
+   (sem `transform`). Escondida até ser posicionada; depois de posicionada o `transform` existe e ela aparece ao lado do cursor. */
+.recharts-tooltip-wrapper:not([style*="transform"]) { visibility: hidden !important; }

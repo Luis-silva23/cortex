@@ -1,0 +1,275 @@
+name: CI
+
+# Pipeline real: PUSH/PR → install → lint → typecheck → unit → integration
+# (Postgres+Redis reais via services:, não mocks) → build → docker build
+# (valida de verdade os Dockerfiles desta sessão, já que este ambiente de
+# desenvolvimento não tem daemon Docker para testar localmente) → E2E.
+# Falha em qualquer job aqui bloqueia o merge se branch protection exigir
+# estes checks (configuração do repositório, fora do escopo deste arquivo).
+#
+# NUNCA testado rodando de verdade neste ambiente (sem acesso à internet/
+# GitHub Actions daqui) — sintaxe e lógica revisadas manualmente, mas só
+# uma execução real no GitHub confirma. BLOCKED BY ENVIRONMENT para
+# validação end-to-end deste arquivo.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  lint-and-typecheck:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - name: Lint API
+        run: npm run lint --workspace=@ln-system/api
+      - name: Lint Admin Web
+        run: npm run lint --workspace=@ln-system/admin-web
+      - name: Lint Super Admin
+        run: npm run lint --workspace=@ln-system/super-admin
+      - name: Documentation links
+        run: node scripts/check-doc-links.js
+      - name: Typecheck (all workspaces)
+        run: |
+          npm run type-check --workspace=@ln-system/database
+          npm run type-check --workspace=@ln-system/shared
+          npm run type-check --workspace=@ln-system/api
+          npm run type-check --workspace=@ln-system/admin-web
+          npm run type-check --workspace=@ln-system/super-admin
+          npm run type-check --workspace=@ln-system/pdv-desktop
+          npm run type-check --workspace=@ln-system/balcao
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - name: Run API unit test suite (mocked Prisma/Redis — see jest.config.js)
+        run: npm test --workspace=@ln-system/api
+      - name: Run Admin Web unit tests
+        run: npm test --workspace=@ln-system/admin-web
+      - name: Run PDV Desktop logic tests
+        run: npm run test:logic --workspace=@ln-system/pdv-desktop
+      - name: Run Balcão logic tests
+        run: npm run test:logic --workspace=@ln-system/balcao
+
+  integration-tests:
+    name: Integration Tests (real Postgres + Redis)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: lnsystem
+          POSTGRES_PASSWORD: lnsystem123
+          POSTGRES_DB: lnsystem_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U lnsystem -d lnsystem_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        # actions services: não aceitam `command:` custom com argumentos —
+        # sem senha aqui só para CI (redis do docker-compose.yml de
+        # desenvolvimento continua exigindo senha; ambientes são
+        # independentes, .env deste job abaixo reflete isso).
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - name: Write apps/api/.env for the real Postgres/Redis service containers
+        working-directory: apps/api
+        run: |
+          cat > .env <<EOF
+          DATABASE_URL="postgresql://lnsystem:lnsystem123@localhost:5432/lnsystem_db?schema=public"
+          REDIS_HOST="localhost"
+          REDIS_PORT=6379
+          REDIS_PASSWORD=""
+          REDIS_DB=0
+          REDIS_URL="redis://localhost:6379/0"
+          JWT_SECRET="ci-only-secret-never-use-in-production"
+          JWT_REFRESH_SECRET="ci-only-refresh-secret-never-use-in-production"
+          JWT_EXPIRES_IN="15m"
+          JWT_REFRESH_EXPIRES_IN="7d"
+          DATA_ENCRYPTION_KEY="$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")"
+          RLS_CONTEXT_SECRET="$(node -e "console.log(require('crypto').randomBytes(32).toString('base64'))")"
+          API_PORT=3001
+          NODE_ENV="test"
+          EOF
+      # `prisma migrate deploy` lê DATABASE_URL do ambiente do passo (o `.env` acima fica em apps/api e não é encontrado a partir da raiz).
+      - name: Apply migrations
+        env:
+          DATABASE_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/lnsystem_db?schema=public"
+        run: npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma
+      # Invariantes de RLS (toda tabela com companyId tem RLS FORCE + policy): falha o pipeline se uma migration nova esquecer.
+      - name: Check RLS invariants
+        working-directory: apps/api
+        env:
+          DATABASE_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/lnsystem_db?schema=public"
+        run: npm run db:check-rls
+      # O usuário `lnsystem` do serviço Postgres é SUPERUSUÁRIO: superusuário e dono das tabelas IGNORAM a RLS, então uma suíte rodada com ele passa
+      # mesmo com a RLS quebrada (falso resultado). Por isso a suíte COMPLETA roda aqui como o papel de execução SEM posse e SEM BYPASSRLS
+      # (`db:role-split-check --all`: aplica as migrations como dono, cria banco+papel temporários, prova que o papel não escala privilégio e roda
+      # toda a integração com a aplicação conectada como ele; remove tudo ao final). O superusuário só cria o papel (CORTEX_DB_ADMIN_URL).
+      - name: Integration suite como papel de execução SEM posse (RLS valendo de verdade)
+        working-directory: apps/api
+        env:
+          CORTEX_DB_ADMIN_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/postgres"
+          DATABASE_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/lnsystem_db?schema=public"
+        run: npm run db:role-split-check -- --all
+      - name: Run integration test suite (rápida, como superusuário — NÃO prova RLS; só regressão funcional)
+        run: npm run test:integration --workspace=@ln-system/api
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [lint-and-typecheck, unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      - run: npx prisma generate --schema=packages/database/prisma/schema.prisma
+      - run: npm run build --workspace=@ln-system/shared
+      - run: npm run build --workspace=@ln-system/database
+      - run: npm run build --workspace=@ln-system/api
+      - run: npm run build --workspace=@ln-system/admin-web
+      - run: npm run build --workspace=@ln-system/super-admin
+      - name: Build Balcão (VITE_API_URL é fixado no build; https obrigatório em produção — valor de validação, nunca um domínio real)
+        run: npm run build --workspace=@ln-system/balcao
+        env:
+          VITE_API_URL: https://api.ci.invalid
+
+  docker-build:
+    name: Docker Build (validates apps/api, apps/admin-web and apps/super-admin Dockerfiles)
+    runs-on: ubuntu-latest
+    needs: [build, integration-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build API image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: false
+          tags: ln-system-api:ci
+      - name: Build Admin Web image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/admin-web/Dockerfile
+          push: false
+          tags: ln-system-admin-web:ci
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:3001
+      - name: Build Super Admin image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/super-admin/Dockerfile
+          push: false
+          tags: ln-system-super-admin:ci
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:3001
+      - name: Build Balcão image (valor de validação; o endereço real é fixado no build de cada ambiente)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: apps/balcao/Dockerfile
+          push: false
+          tags: ln-system-balcao:ci
+          build-args: |
+            VITE_API_URL=https://api.ci.invalid
+
+  # Infraestrutura (compose, scripts de servidor, imagem de backup). Só valida arquivos: não sobe serviço nenhum, não usa segredo real
+  # (valores abaixo existem só para o `docker compose config` resolver as variáveis obrigatórias; domínio `.invalid` nunca resolve).
+  infra-static:
+    name: Infra (sintaxe dos scripts, docker compose config, imagem de backup)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sintaxe dos scripts de servidor (bash -n)
+        run: |
+          set -e
+          find deploy -name '*.sh' -print0 | xargs -0 -n1 bash -n
+      - name: docker compose config (base + staging + cloudflare + free, ordem de PRODUCAO.md §19)
+        env:
+          STAGING_DOMAIN: ci.invalid
+          TRUST_PROXY: '1'
+          POSTGRES_PASSWORD: ci
+          DB_OWNER_PASSWORD: ci
+          DB_APP_PASSWORD: ci
+          DB_BACKUP_PASSWORD: ci
+          REDIS_PASSWORD: ci
+          RLS_CONTEXT_SECRET: ci
+          JWT_SECRET: ci-a
+          JWT_REFRESH_SECRET: ci-b
+          DATA_ENCRYPTION_KEY: ci-c
+          BACKUP_KEY_FILE: /tmp/ci-backup.key
+          ORIGIN_CERT_DIR: /tmp/ci-origin-certs
+          PUBLIC_API_URL: https://api.ci.invalid
+        run: |
+          set -e
+          touch /tmp/ci-backup.key && mkdir -p /tmp/ci-origin-certs
+          docker compose version
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.staging.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.cloudflare.yml -f docker-compose.free.yml config -q
+      - uses: docker/setup-buildx-action@v3
+      - name: Build backup image (rclone, openssl, cron)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: deploy/backup/Dockerfile
+          push: false
+          tags: ln-system-backup:ci
+
+  security-audit:
+    name: Security Audit (dependency vulnerabilities)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+      - run: npm ci
+      # continue-on-error: verdadeiro por padrão hoje porque este repo já
+      # tem vulnerabilidades conhecidas em dependências transitivas (não
+      # introduzidas por este pipeline) — reportado, não silencioso, mas
+      # ainda não usado como gate duro até essa dívida ser triada e
+      # resolvida deliberadamente (fora do escopo desta tarefa de infra).
+      - run: npm audit --audit-level=critical
+        continue-on-error: true

@@ -1,0 +1,265 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Stack de DESENVOLVIMENTO / HOMOLOGAÇÃO em um host só (docs/CORTEX/PRODUCAO.md §6). NÃO é a topologia de produção: lá o PostgreSQL e o
+# Redis são gerenciados (com backup, TLS e alta disponibilidade) e a API roda em 2+ instâncias atrás de um balanceador com HTTPS.
+#
+# SEGREDOS: nenhuma senha vem escrita aqui (antes havia "lnsystem123" versionada, igual à do .env.example). `POSTGRES_PASSWORD` e
+# `REDIS_PASSWORD` são OBRIGATÓRIAS: o `docker compose` recusa subir sem elas. Defina-as no `.env` desta pasta (nunca versionado) com
+# senhas só de letras e números (entram em URL de conexão). A API, em NODE_ENV=production, também recusa subir com senha de exemplo.
+#
+# REDE: PostgreSQL e Redis são publicados SÓ em 127.0.0.1 (acesso do próprio host, p.ex. para uma ferramenta de banco). Não os exponha
+# em 0.0.0.0. Dentro da rede do compose os serviços se enxergam pelo nome.
+#
+# ATENÇÃO: este arquivo foi revisado, mas NÃO validado com `docker compose config`/`up` (não há daemon Docker na máquina de
+# desenvolvimento) — rode `docker compose config` num ambiente com Docker antes do primeiro uso.
+# ---------------------------------------------------------------------------------------------------------------------------------
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: ln-system-postgres
+    restart: unless-stopped
+    environment:
+      # POSTGRES_USER é SUPERUSUÁRIO na imagem oficial: serve só à administração de emergência por DBA. NENHUM serviço abaixo o usa — a API
+      # conectada como superusuário ignoraria a RLS. Os papéis de verdade (dono, API, backup) nascem em deploy/postgres-init/10-roles.sh.
+      POSTGRES_USER: ${POSTGRES_USER:-lnsystem_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env (senha forte, só letras e números)}
+      POSTGRES_DB: ${POSTGRES_DB:-lnsystem_db}
+      DB_OWNER_USER: ${DB_OWNER_USER:-lnsystem_owner}
+      DB_APP_USER: ${DB_APP_USER:-lnsystem_app}
+      DB_BACKUP_USER: ${DB_BACKUP_USER:-lnsystem_backup}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD:?defina DB_OWNER_PASSWORD no .env (senha forte, só letras e números)}
+      DB_APP_PASSWORD: ${DB_APP_PASSWORD:?defina DB_APP_PASSWORD no .env (senha forte, só letras e números)}
+      DB_BACKUP_PASSWORD: ${DB_BACKUP_PASSWORD:?defina DB_BACKUP_PASSWORD no .env (senha forte, só letras e números)}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # roda UMA vez, na primeira inicialização do volume (cria dono/API/backup; ver o comentário do próprio script)
+      - ./deploy/postgres-init/10-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ln-system-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?defina REDIS_PASSWORD no .env (senha forte, só letras e números)}
+    command: ["sh", "-c", "exec redis-server --requirepass \"$$REDIS_PASSWORD\""]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Serviço one-shot: aplica migrations pendentes e sai (código 0 = sucesso). `api` só sobe depois que este container terminar com
+  # sucesso. `migrate deploy` (não `migrate dev`) aplica as migrations já existentes sem gerar nenhuma nova. Roda com o DONO das tabelas
+  # (DB_OWNER_USER): o papel da API NÃO é dono e não faz DDL (docs/CORTEX/PRODUCAO.md §4 e §5; provado por `npm run db:role-split-check`).
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: build
+    container_name: ln-system-migrate
+    command: ["npx", "prisma", "migrate", "deploy", "--schema=packages/database/prisma/schema.prisma"]
+    working_dir: /app
+    environment:
+      DATABASE_URL: "postgresql://${DB_OWNER_USER:-lnsystem_owner}:${DB_OWNER_PASSWORD}@postgres:5432/${POSTGRES_DB:-lnsystem_db}?schema=public"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Serviço one-shot: depois das migrations, dá ao papel da API só DML (e tira _prisma_migrations dele) e ao papel de backup só leitura.
+  # Idempotente — roda a cada `up`. A API só sobe depois que ele termina com sucesso.
+  db-grants:
+    image: postgres:18-alpine
+    container_name: ln-system-db-grants
+    entrypoint: ["sh", "-c", "psql -v ON_ERROR_STOP=1 -v app=\"$$DB_APP_USER\" -v bkp=\"$$DB_BACKUP_USER\" -v ctx_secret_b64=\"$$RLS_CONTEXT_SECRET\" -f /after-migrate.sql \"postgresql://$$DB_OWNER_USER:$$DB_OWNER_PASSWORD@postgres:5432/$$POSTGRES_DB\""]
+    environment:
+      DB_OWNER_USER: ${DB_OWNER_USER:-lnsystem_owner}
+      DB_OWNER_PASSWORD: ${DB_OWNER_PASSWORD}
+      DB_APP_USER: ${DB_APP_USER:-lnsystem_app}
+      DB_BACKUP_USER: ${DB_BACKUP_USER:-lnsystem_backup}
+      POSTGRES_DB: ${POSTGRES_DB:-lnsystem_db}
+      # segredo que ASSINA o contexto de RLS (decisão 151): o banco só aceita contexto assinado com ele (liga a exigência)
+      RLS_CONTEXT_SECRET: ${RLS_CONTEXT_SECRET:?defina RLS_CONTEXT_SECRET no .env (base64 de 32 bytes, gere com openssl rand -base64 32)}
+    volumes:
+      - ./deploy/postgres-init/after-migrate.sql:/after-migrate.sql:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: ln-system-api
+    restart: unless-stopped
+    # O desligamento ordenado da API tem prazo total de 25 s (config/shutdown.ts): dê um pouco mais antes do SIGKILL.
+    stop_grace_period: 30s
+    env_file:
+      - .env
+    environment:
+      # Dentro da rede do compose os serviços se enxergam pelo NOME do serviço, não "localhost" — sobrescreve o que vier de .env.
+      # Papel de EXECUÇÃO (só DML, sem posse, sem BYPASSRLS): é isso que faz a RLS valer. NUNCA o POSTGRES_USER (superusuário) nem o dono.
+      DATABASE_URL: "postgresql://${DB_APP_USER:-lnsystem_app}:${DB_APP_PASSWORD}@postgres:5432/${POSTGRES_DB:-lnsystem_db}?schema=public"
+      # A API NÃO tem a credencial de backup (decisão 152): o papel que lê todas as empresas (BYPASSRLS) existe só no serviço `backup`. O "Backup" do Super Admin
+      # PEDE um backup ao serviço (arquivo em /backup-requests) e LISTA os manifestos (/backup-public, somente leitura); a API não restaura nem apaga backup.
+      BACKUP_MODE: "delegated"
+      BACKUP_REQUEST_DIR: /backup-requests
+      BACKUP_PUBLIC_DIR: /backup-public
+      # O job semanal da API não existe no modo delegado: o serviço `backup` faz o diário (00:00).
+      ENABLE_AUTO_BACKUP: "false"
+      # Segredo que ASSINA o contexto de RLS (decisão 151) e exigência de papel sem posse: a API recusa subir como superusuário/BYPASSRLS ou dona das tabelas.
+      RLS_CONTEXT_SECRET: ${RLS_CONTEXT_SECRET:?defina RLS_CONTEXT_SECRET no .env}
+      REQUIRE_NON_OWNER_DB_ROLE: "true"
+      REDIS_HOST: "redis"
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD}"
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
+      API_PORT: 3001
+      NODE_ENV: "production"
+      # Atrás de um proxy/balanceador, informe o número de saltos (ex.: 1). NUNCA "true" (a API recusa).
+      TRUST_PROXY: "${TRUST_PROXY:-}"
+      # HTTPS obrigatório em produção (a API devolve 426 para HTTP puro). ESTE arquivo publica a API em HTTP (stack de dev/homologação em
+      # um host, sem TLS), por isso a exigência vem DESLIGADA aqui e a API avisa no log. Para homologar com HTTPS de verdade use
+      # docker-compose.staging.yml (proxy com certificado à frente da API, ENFORCE_HTTPS ligado e porta 3001 fechada).
+      ENFORCE_HTTPS: "${ENFORCE_HTTPS:-false}"
+    ports:
+      - "3001:3001"
+    volumes:
+      - backup_requests:/backup-requests
+      - backup_public:/backup-public:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      db-grants:
+        condition: service_completed_successfully
+      # o serviço de backup cria/ajusta as permissões das pastas de troca na subida
+      backup:
+        condition: service_started
+    healthcheck:
+      # /ready: banco, Redis e workers de pé e fora de desligamento (a /health detalha, a /live só diz que o processo responde).
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3001/api/health/ready', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  admin-web:
+    build:
+      context: .
+      dockerfile: apps/admin-web/Dockerfile
+      args:
+        # NEXT_PUBLIC_* precisa ser passado no BUILD (ver comentário no Dockerfile) — colocar em `environment:` abaixo não teria efeito
+        # no bundle já compilado. localhost:3001 assume que o NAVEGADOR do usuário (não o container) acessa a API nesse endereço —
+        # vale para dev local; em staging/produção real isto precisa ser a URL pública (HTTPS) da API.
+        # O Admin Web espera a URL COM o sufixo /api (lib/api.ts usa a variável como base); o Super Admin acrescenta /api sozinho.
+        # Antes os dois recebiam a mesma URL sem /api e o Admin Web chamava /sales em vez de /api/sales (404 em tudo).
+        NEXT_PUBLIC_API_URL: "${PUBLIC_API_URL:-http://localhost:3001}/api"
+    container_name: ln-system-admin-web
+    restart: unless-stopped
+    environment:
+      NODE_ENV: "production"
+    ports:
+      - "3002:3002"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Plataforma Web Super ADM TI (companies/licenses/devices/backup/audit-logs/observabilidade).
+  super-admin:
+    build:
+      context: .
+      dockerfile: apps/super-admin/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: "${PUBLIC_API_URL:-http://localhost:3001}"
+    container_name: ln-system-super-admin
+    restart: unless-stopped
+    environment:
+      NODE_ENV: "production"
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Aplicativo Balcão (atendimento): frontend próprio, estático (nginx). Separado do PDV (caixa) e do Admin Web (administração).
+  # VITE_API_URL é FIXADO NO BUILD e SEM o sufixo /api (o app acrescenta). Em produção precisa ser https:// (o app recusa abrir com
+  # endereço http/vazio). Origem do navegador no dev: http://localhost:5174 (BALCAO_URL da API, CORS).
+  balcao:
+    build:
+      context: .
+      dockerfile: apps/balcao/Dockerfile
+      args:
+        VITE_API_URL: "${PUBLIC_API_URL:-http://localhost:3001}"
+    container_name: ln-system-balcao
+    restart: unless-stopped
+    environment:
+      # origem da API no connect-src da CSP do nginx (a mesma do VITE_API_URL fixado no build)
+      API_ORIGIN: "${PUBLIC_API_URL:-http://localhost:3001}"
+    ports:
+      - "5174:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  # Backup lógico diário (00:00) + verificação de integridade (12:00, sem novo dump) — docs/CORTEX/BACKUP_RECUPERACAO.md.
+  # O volume `backup_data` está no MESMO host do banco: serve de 1º nível. Para valer como backup, configure BACKUP_OFFSITE_CMD (cópia
+  # externa) e BACKUP_ALERT_CMD (aviso de falha) no .env — sem eles o próprio serviço registra "AVISO" a cada execução.
+  backup:
+    build:
+      context: .
+      dockerfile: deploy/backup/Dockerfile
+    container_name: ln-system-backup
+    restart: unless-stopped
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: ${DB_BACKUP_USER:-lnsystem_backup}
+      PGPASSWORD: ${DB_BACKUP_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-lnsystem_db}
+      BACKUP_DIR: /backups
+      BACKUP_PUBLIC_DIR: /backup-public
+      BACKUP_REQUEST_DIR: /backup-requests
+      BACKUP_ENCRYPTION_KEY_FILE: /run/secrets/backup.key
+      BACKUP_OFFSITE_CMD: "${BACKUP_OFFSITE_CMD:-}"
+      BACKUP_ALERT_CMD: "${BACKUP_ALERT_CMD:-}"
+      # alerta que CHEGA a uma pessoa: BACKUP_ALERT_CMD="sh /opt/backup/alert-webhook.sh" + ALERT_WEBHOOK_URL (Slack/Teams/Mattermost/endpoint próprio)
+      ALERT_WEBHOOK_URL: "${ALERT_WEBHOOK_URL:-}"
+      WAL_MAX_AGE_MINUTES: "${WAL_MAX_AGE_MINUTES:-30}"
+      KEEP_DAILY: "${BACKUP_KEEP_DAILY:-30}"
+      KEEP_WEEKLY: "${BACKUP_KEEP_WEEKLY:-12}"
+      KEEP_MONTHLY: "${BACKUP_KEEP_MONTHLY:-12}"
+    volumes:
+      - backup_data:/backups
+      - backup_public:/backup-public
+      - backup_requests:/backup-requests
+      # arquivo com a chave de cifragem do backup (criado FORA do repositório; guardar uma cópia no cofre — sem ela o backup não abre)
+      - ${BACKUP_KEY_FILE:?defina BACKUP_KEY_FILE no .env (caminho de um arquivo com a chave de cifragem do backup, fora do repositório)}:/run/secrets/backup.key:ro
+    depends_on:
+      db-grants:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "su postgres -s /bin/sh -c '. /etc/backup.env; /opt/backup/backup.sh status' >/dev/null"]
+      interval: 1h
+      timeout: 20s
+      retries: 1
+      start_period: 5m
+
+volumes:
+  postgres_data:
+  redis_data:
+  backup_data:
+  backup_public:
+  backup_requests:

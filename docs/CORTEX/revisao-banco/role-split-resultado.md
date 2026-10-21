@@ -1,0 +1,46 @@
+**Execução de 2026-10-20** (`npm run db:role-split-check`) — banco e papel temporários criados e removidos pelo script; dev/teste intocados. Resultado: **APROVADO**.
+
+- ✅ migrations aplicadas pelo DONO no banco temporário vazio — 57 migrations found
+- ✅ papel de execução temporário criado com os GRANTs do modelo (DML; sem posse, sem DDL)
+- ✅ segredo do contexto de RLS provisionado pelo dono (a exigência de assinatura liga)
+- ✅ o papel de execução não é superusuário, não tem BYPASSRLS, CREATEDB nem CREATEROLE
+- ✅ o papel de execução não é dono de nenhuma tabela — tabelas de que é dono: 0
+- ✅ DDL negado: desligar a RLS de uma tabela (ALTER TABLE … DISABLE ROW LEVEL SECURITY)
+- ✅ DDL negado: desligar o FORCE da RLS (NO FORCE ROW LEVEL SECURITY)
+- ✅ DDL negado: apagar uma policy (DROP POLICY)
+- ✅ DDL negado: alterar uma policy (ALTER POLICY … USING (true))
+- ✅ DDL negado: apagar uma tabela (DROP TABLE)
+- ✅ DDL negado: esvaziar uma tabela (TRUNCATE)
+- ✅ DDL negado: criar uma tabela no schema public (CREATE TABLE)
+- ✅ DDL negado: apagar uma restrição (ALTER TABLE … DROP CONSTRAINT)
+- ✅ `_prisma_migrations` ilegível para o papel de execução
+- ✅ RLS: a empresa dona enxerga a própria linha
+- ✅ RLS: a empresa B NÃO enxerga a linha da A
+- ✅ RLS: sem contexto de empresa a leitura volta vazia (0 linhas)
+- ✅ RLS: a empresa B não consegue inserir linha com o companyId da A (WITH CHECK) — recusado
+- ✅ livro de estoque: UPDATE e DELETE pela empresa afetam 0 linhas (append-only) — update 0, delete 0
+- ✅ contexto legítimo assinado (administrador da empresa A) enxerga os dados da A — linhas visíveis: 2
+- ✅ SQL cru: set_config(app.user_type = SUPER_ADMIN) sem assinatura NÃO enxerga nada
+- ✅ SQL cru: papel promovido a SUPER_ADMIN reaproveitando a assinatura de COMPANY_ADMIN NÃO enxerga nada
+- ✅ SQL cru: trocar a empresa (A para B) mantendo a assinatura da A NÃO enxerga nada
+- ✅ SQL cru: acrescentar filiais à lista assinada NÃO enxerga nada
+- ✅ SQL cru: assinatura com chave errada (HMAC de outro segredo) NÃO enxerga nada
+- ✅ SQL cru: assinatura correta porém EXPIRADA (10 min atrás) NÃO enxerga nada
+- ✅ SQL cru: assinatura correta com relógio no FUTURO (+10 min) NÃO enxerga nada
+- ✅ SQL cru: sem nenhum contexto NÃO enxerga nada
+- ✅ negado ao papel de execução: ler o cofre de segredos (app_ctx_vault.secrets)
+- ✅ negado ao papel de execução: ler a configuração (app_ctx.settings)
+- ✅ negado ao papel de execução: desligar a exigência de assinatura (UPDATE app_ctx.settings)
+- ✅ negado ao papel de execução: provisionar outro segredo (app_ctx.provision)
+- ✅ negado ao papel de execução: aposentar o segredo (app_ctx.retire_previous)
+- ✅ negado ao papel de execução: reescrever policies (app_ctx.rewrite_policies)
+- ✅ negado ao papel de execução: substituir o verificador (CREATE OR REPLACE FUNCTION app_ctx._sig_ok)
+- ✅ negado ao papel de execução: criar função no schema do verificador
+- ✅ negado ao papel de execução: criar objetos temporários (sequestro de search_path via pg_temp)
+- ✅ negado ao papel de execução: assumir outro papel (SET ROLE)
+- ℹ️ Limite registrado (não é falha do teste): quem injeta SQL durante UMA requisição continua com o contexto daquela requisição e pode reutilizar a própria assinatura por até 120 s; não vira outro usuário, papel ou empresa. Quem executa código dentro do processo da API tem o segredo.
+- ✅ as funções auxiliares da RLS são executáveis pelo papel de execução
+- ✅ suíte de integração real (8 arquivos) com a aplicação como papel SEM posse — Test Suites: 8 passed, 8 total; Tests: 64 passed, 64 total
+- Banco e papel temporários removidos: sim.
+
+> Limite honesto: o contexto da RLS agora é ASSINADO (decisão 151): SQL arbitrário do papel de execução NÃO consegue virar outro papel, outra empresa nem outras filiais, nem ler o segredo, nem desligar a exigência. Continua possível, e não é evitável neste desenho: (a) reutilizar a assinatura da própria requisição por até 120 s; (b) quem executa código dentro do processo da API assina o que quiser (tem o segredo). A separação de papéis impede o DDL; a assinatura impede a falsificação do contexto; nada disso substitui não ter injeção de SQL.

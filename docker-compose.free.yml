@@ -1,0 +1,75 @@
+# OVERRIDE para caber na hospedagem GRATUITA (Oracle Cloud Always Free, VM Ampere A1: 2 OCPU e 12 GB de memória, 200 GB de disco no total — limites da
+# documentação oficial em 2026-10-19). Uso — SEMPRE como último arquivo, junto do staging (o serviço `proxy` nasce no staging):
+#
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml [-f docker-compose.cloudflare.yml] -f docker-compose.free.yml up -d --build
+#
+# O que acrescenta (nada muda no comportamento da aplicação):
+#   1. ROTAÇÃO DE LOGS dos contêineres (json-file, 10 MB x 3): sem isso um contêiner barulhento enche o disco gratuito e derruba o banco.
+#   2. TETO DE MEMÓRIA por serviço (soma dos tetos ≈ 8 GB de 12 GB: sobra para o sistema, o cache de disco e o build): um serviço descontrolado
+#      é reiniciado em vez de matar a máquina inteira.
+#   3. AJUSTE MÍNIMO do PostgreSQL para a memória disponível (shared_buffers e effective_cache_size) e log de consulta lenta (> 1 s).
+#   4. CÓPIA EXTERNA DO BACKUP por rclone (a imagem de backup ganhou o rclone): as variáveis RCLONE_CONFIG_OFFSITE_* descrevem o destino
+#      (ex.: Oracle Object Storage pela API compatível com S3, 20 GB gratuitos na documentação oficial). Os arquivos já saem CIFRADOS pelo serviço de backup.
+#
+# Não use junto com o overlay de WAL (docker-compose.wal.yml): os dois definem o `command` do PostgreSQL.
+# NÃO VALIDADO nesta máquina (sem daemon Docker): rode `docker compose ... config` e observe `docker stats` no servidor antes de confiar nos tetos.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  postgres:
+    logging: *logging
+    mem_limit: 3g
+    command:
+      - postgres
+      - -c
+      - shared_buffers=768MB
+      - -c
+      - effective_cache_size=3GB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=128MB
+      - -c
+      - log_min_duration_statement=1000
+
+  redis:
+    logging: *logging
+    mem_limit: 512m
+
+  api:
+    logging: *logging
+    mem_limit: 2g
+
+  admin-web:
+    logging: *logging
+    mem_limit: 768m
+
+  super-admin:
+    logging: *logging
+    mem_limit: 768m
+
+  balcao:
+    logging: *logging
+    mem_limit: 128m
+
+  proxy:
+    logging: *logging
+    mem_limit: 256m
+
+  backup:
+    logging: *logging
+    mem_limit: 512m
+    environment:
+      # Destino da cópia externa (rclone lê RCLONE_CONFIG_<NOME>_*; o nome do remoto aqui é "offsite"). Vazio = sem cópia externa (o backup avisa a cada execução).
+      # Exemplo para Oracle Object Storage (API S3): TYPE=s3, PROVIDER=Other, ENDPOINT=https://<namespace>.compat.objectstorage.<região>.oraclecloud.com,
+      # chaves de acesso do tipo "Customer Secret Key" do usuário. Nunca coloque os valores no repositório: somente no .env do servidor.
+      RCLONE_CONFIG_OFFSITE_TYPE: "${RCLONE_CONFIG_OFFSITE_TYPE:-}"
+      RCLONE_CONFIG_OFFSITE_PROVIDER: "${RCLONE_CONFIG_OFFSITE_PROVIDER:-}"
+      RCLONE_CONFIG_OFFSITE_ENDPOINT: "${RCLONE_CONFIG_OFFSITE_ENDPOINT:-}"
+      RCLONE_CONFIG_OFFSITE_REGION: "${RCLONE_CONFIG_OFFSITE_REGION:-}"
+      RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID: "${RCLONE_CONFIG_OFFSITE_ACCESS_KEY_ID:-}"
+      RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY: "${RCLONE_CONFIG_OFFSITE_SECRET_ACCESS_KEY:-}"

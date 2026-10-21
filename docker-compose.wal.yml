@@ -1,0 +1,42 @@
+# OVERLAY de PITR (decisão 149): liga o arquivamento contínuo de WAL ao PostgreSQL do compose principal.
+#   docker compose -f docker-compose.yml -f docker-compose.wal.yml up -d --build
+# Sem este overlay só o dump diário protege os dados (perda possível de até ~24 h). Com ele cada segmento de WAL é comprimido, CIFRADO (AES-256) e gravado no
+# volume `wal_archive` (e, se WAL_OFFSITE_CMD existir, copiado para FORA do servidor) — junto de um base backup semanal permite voltar a um INSTANTE.
+# A janela de perda do WAL é limitada por WAL_ARCHIVE_TIMEOUT (segundos; padrão 300 = 5 min). RPO/RTO alvo (15 min / 1 h) são PROPOSTAS NÃO APROVADAS.
+# ATENÇÃO: não validado com `docker compose config`/`up` (sem Docker na máquina de desenvolvimento). Os scripts foram provados em laboratório com PostgreSQL 18.6
+# (arquivar cifrado, base backup verificado, recuperação até um instante, recusa de sobrescrita e de base adulterado) — ver docs/CORTEX/BACKUP_RECUPERACAO.md.
+#
+# Operação (como `postgres` dentro do contêiner; PostgreSQL 18 aceita replicação pelo socket local):
+#   base backup semanal:  docker compose exec -T -u postgres postgres sh /opt/wal/base-backup.sh /wal-archive/bases
+#   recuperar:            ver deploy/backup/pitr-restore.sh (sempre num diretório NOVO; nunca sobre o banco em uso)
+# A chave do WAL (WAL_KEY_FILE) deve ser LEGÍVEL pelo usuário postgres do contêiner (uid 70) e ter cópia no cofre — sem ela o WAL não abre. Prefira uma chave
+# DIFERENTE da do backup lógico (o contêiner do banco passa a ter acesso a ela).
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: deploy/postgres/Dockerfile.wal
+    image: ln-system-postgres-wal:18
+    command:
+      - postgres
+      - -c
+      - wal_level=replica
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout=${WAL_ARCHIVE_TIMEOUT:-300}
+      - -c
+      - archive_command=sh /opt/wal/wal-archive.sh %p %f
+    environment:
+      WAL_ARCHIVE_DIR: /wal-archive
+      WAL_ENCRYPTION_KEY_FILE: /run/secrets/wal.key
+      WAL_OFFSITE_CMD: "${WAL_OFFSITE_CMD:-}"
+    volumes:
+      - wal_archive:/wal-archive
+      - ./deploy/backup/wal-archive.sh:/opt/wal/wal-archive.sh:ro
+      - ./deploy/backup/wal-fetch.sh:/opt/wal/wal-fetch.sh:ro
+      - ./deploy/backup/base-backup.sh:/opt/wal/base-backup.sh:ro
+      - ${WAL_KEY_FILE:?defina WAL_KEY_FILE no .env (arquivo com a chave de cifragem do WAL, fora do repositório)}:/run/secrets/wal.key:ro
+
+volumes:
+  wal_archive:

@@ -1,0 +1,76 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Build output
+dist/
+dist-electron/
+dist-installer/
+.next/
+build/
+*.tsbuildinfo
+
+# packages/shared compiles in place (its consumers import deep subpaths
+# like @ln-system/shared/utils/password directly, which only resolve at
+# runtime if the compiled .js sits next to the .ts source — no dist/
+# indirection) — ignore the generated output, keep the .ts source.
+packages/shared/**/*.js
+packages/shared/**/*.js.map
+packages/shared/**/*.d.ts
+packages/shared/**/*.d.ts.map
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+
+# Material de assinatura e artefatos de distribuição — NUNCA versionar (keystore/certificado do proprietário; binários vão para o canal de distribuição)
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.apk
+*.aab
+android/
+
+# Credenciais e sessões do tenant de demonstração/E2E (npm run demo:seed) — NUNCA versionar
+.demo/
+**/.demo/
+
+# Evidências brutas de E2E (capturas/relatórios temporários) — as curadas ficam em docs/evidencias/
+.e2e-tmp/
+**/.e2e-tmp/
+
+# Logs
+logs/
+# EXCEÇÃO: a página "Logs" do Super Admin é CÓDIGO-FONTE (rota /dashboard/observability/logs); a regra genérica acima a escondia do Git
+!apps/super-admin/app/dashboard/observability/logs/
+*.log
+npm-debug.log*
+out.txt
+
+# Runtime data / local persistence
+dump.rdb
+backups/
+storage/
+
+# Test / coverage
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Prisma
+*.db
+
+# Ambiente de homologação isolado (segredos gerados por apps/hml/infra.js) — NUNCA versionar
+.hml/
+**/.hml/
+
+**/credentials.json
+/apps/hml/.hml/

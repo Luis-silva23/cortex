@@ -1,0 +1,30 @@
+{
+  "name": "@ln-system/tv",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "dependencies": {
+    "@react-navigation/native": "^7.3.18",
+    "@react-navigation/native-stack": "^7.18.10",
+    "axios": "^1.7.9",
+    "expo": "~57.0.22",
+    "expo-secure-store": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "react": "19.2.3",
+    "react-native": "npm:react-native-tvos@0.86.2-0",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-screens": "~4.26.0",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@react-native-tvos/config-tv": "^0.1.6",
+    "@types/react": "~19.2.2",
+    "typescript": "~6.0.3"
+  },
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "ios": "expo run:ios",
+    "type-check": "tsc --noEmit"
+  },
+  "private": true
+}

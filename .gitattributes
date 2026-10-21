@@ -1,0 +1,20 @@
+# Fins de linha: scripts e arquivos de contêiner SEMPRE com LF (um .sh com CRLF quebra no Linux com "bad interpreter: /bin/sh^M").
+# O Windows (core.autocrlf=true) converteria estes arquivos para CRLF na cópia de trabalho e o ZIP/Docker COPY levaria o CRLF para o servidor.
+*.sh              text eol=lf
+Dockerfile*       text eol=lf
+*.dockerfile      text eol=lf
+Caddyfile*        text eol=lf
+docker-compose*.yml text eol=lf
+.env.example      text eol=lf
+*.env.example     text eol=lf
+.github/**/*.yml  text eol=lf
+
+# Binários: nunca converter nem diferenciar como texto.
+*.png  binary
+*.ico  binary
+*.jpg  binary
+*.jpeg binary
+*.zip  binary
+*.apk  binary
+*.keystore binary
+*.jks  binary

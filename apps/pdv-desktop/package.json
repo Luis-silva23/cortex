@@ -1,0 +1,100 @@
+{
+  "name": "@ln-system/pdv-desktop",
+  "version": "1.0.0",
+  "description": "PDV Desktop - LN System Cloud",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite --strictPort",
+    "dev:web": "vite --config vite.web.config.ts --port 5173 --strictPort",
+    "build": "tsc && vite build && electron-builder",
+    "build:win": "tsc && vite build && electron-builder --win",
+    "build:linux": "tsc && vite build && electron-builder --linux",
+    "build:mac": "tsc && vite build && electron-builder --mac",
+    "electron:dev": "concurrently \"vite --strictPort\" \"wait-on http://localhost:5173 && electron .\"",
+    "preview": "vite preview",
+    "smoke:electron": "tsc && vite build && electron scripts/electron-smoke.cjs",
+    "type-check": "tsc --noEmit",
+    "test:logic": "tsx --test scripts/payment-flow.test.ts scripts/cash-summary.test.ts scripts/cash-close.test.ts scripts/support-report.test.ts scripts/device-enrollment.test.ts scripts/installment-preview.test.ts scripts/session-revocation.test.ts"
+  },
+  "keywords": [
+    "pdv",
+    "pos",
+    "electron",
+    "react"
+  ],
+  "author": "LN System",
+  "license": "MIT",
+  "dependencies": {
+    "@ln-system/shared": "*",
+    "axios": "^1.6.2",
+    "clsx": "^2.0.0",
+    "date-fns": "^3.0.0",
+    "dexie": "^3.2.4",
+    "lucide-react": "^0.294.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-hot-toast": "^2.4.1",
+    "react-router-dom": "^6.20.0",
+    "tailwind-merge": "^2.1.0",
+    "zustand": "^4.4.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "concurrently": "^8.2.2",
+    "electron": "44.9.0",
+    "electron-builder": "^26.15.3",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8",
+    "vite-plugin-electron": "^0.28.0",
+    "vite-plugin-electron-renderer": "^0.14.5",
+    "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.lnsystem.pdv",
+    "productName": "LN System PDV",
+    "directories": {
+      "output": "dist-installer",
+      "buildResources": "resources"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "!**/node_modules/**"
+    ],
+    "npmRebuild": false,
+    "nodeGypRebuild": false,
+    "buildDependenciesFromSource": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "CORTEX-PDV-Setup-${version}.${ext}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Office"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.business"
+    },
+    "nsis": {
+      "shortcutName": "CÓRTEX PDV",
+      "oneClick": true,
+      "perMachine": false
+    }
+  }
+}

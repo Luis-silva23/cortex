@@ -1,0 +1,309 @@
+openapi: 3.0.3
+info:
+  title: CÓRTEX — Commerce API
+  version: 1.0.0
+  description: |
+    Porta pública para um site/e-commerce falar com o CÓRTEX (servidor → servidor). Separada da API administrativa (`/api`).
+    O CÓRTEX é a autoridade do catálogo, do preço, do estoque e dos pedidos: o canal **lê** o que foi publicado e **envia** pedidos;
+    um pedido recebido NÃO é venda (não baixa estoque, não gera pagamento nem documento fiscal).
+
+    **Autenticação.** Cada chamada leva três cabeçalhos: `X-Cortex-Key` (identificador público da credencial, `ck_…`),
+    `X-Cortex-Timestamp` (segundos Unix) e `X-Cortex-Signature` = `v1=` + HMAC-SHA256 (hex) do texto
+    `timestamp\nMÉTODO\ncaminho+query\nsha256(corpo)`, com o segredo da credencial. Janela de 300 s. O segredo é mostrado uma única
+    vez, na criação da credencial (tela Canais de venda). Falhas de identidade respondem sempre o mesmo 401.
+
+    **Idempotência.** `Idempotency-Key` (8 a 128 caracteres) é obrigatória em `POST /orders` e `POST /orders/{id}/cancel`.
+    **Erros.** Corpo `{ "error": { "code", "message", "details"? }, "requestId" }`; o `code` é estável.
+servers:
+  - url: /commerce/v1
+security:
+  - cortexSignature: []
+tags:
+  - name: Catálogo
+  - name: Pedidos
+  - name: Pagamentos
+paths:
+  /products:
+    get:
+      tags: [Catálogo]
+      summary: Lista os produtos publicados para o canal
+      description: Escopo `CATALOG_READ`. Só produto publicado, ativo e da filial do canal (ou da empresa toda). Sem custo nem ids internos.
+      parameters:
+        - { name: page, in: query, schema: { type: integer, minimum: 1, default: 1 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 50 } }
+        - { name: q, in: query, schema: { type: string, maxLength: 80 }, description: Busca por nome ou SKU }
+      responses:
+        '200':
+          description: Página de produtos
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: '#/components/schemas/Product' } }
+                  pagination: { $ref: '#/components/schemas/Pagination' }
+        default: { $ref: '#/components/responses/Error' }
+  /products/{sku}:
+    get:
+      tags: [Catálogo]
+      summary: Um produto publicado
+      parameters:
+        - { name: sku, in: path, required: true, schema: { type: string, maxLength: 80 } }
+      responses:
+        '200':
+          description: O produto
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Product' } } }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /categories:
+    get:
+      tags: [Catálogo]
+      summary: Categorias com ao menos um produto publicado
+      responses:
+        '200':
+          description: Categorias
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        name: { type: string }
+                        parentId: { type: string, nullable: true }
+        default: { $ref: '#/components/responses/Error' }
+  /orders:
+    post:
+      tags: [Pedidos]
+      summary: Envia um pedido
+      description: |
+        Escopo `ORDERS_WRITE`. O CÓRTEX resolve cada SKU contra o catálogo publicado e confere o PREÇO OFICIAL: se o preço ou o total
+        informado diferir, o pedido inteiro é recusado (`PRICE_MISMATCH`, `TOTAL_MISMATCH`). O pedido nasce `RECEIVED`.
+        Reenviar o mesmo `externalOrderId` com o mesmo conteúdo devolve o pedido (200, `replayed: true`); com conteúdo diferente, 409.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateOrder' }
+      responses:
+        '201':
+          description: Pedido criado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+        '200':
+          description: Pedido já recebido antes com o mesmo conteúdo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderResponse' }
+        default: { $ref: '#/components/responses/Error' }
+  /orders/{externalOrderId}:
+    get:
+      tags: [Pedidos]
+      summary: Consulta um pedido do canal
+      description: Escopo `ORDERS_READ`. Só pedidos do próprio canal.
+      parameters:
+        - { $ref: '#/components/parameters/ExternalOrderId' }
+      responses:
+        '200':
+          description: O pedido
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Order' } } }
+        '404': { $ref: '#/components/responses/Error' }
+        default: { $ref: '#/components/responses/Error' }
+  /orders/{externalOrderId}/cancel:
+    post:
+      tags: [Pedidos]
+      summary: Cancela um pedido ainda não aceito
+      description: Escopo `ORDERS_WRITE`. Pedido `RECEIVED` ou `ACCEPTED` pode ser cancelado (o aceito libera a reserva de estoque); depois de virar venda, não; repetir é inofensivo.
+      parameters:
+        - { $ref: '#/components/parameters/ExternalOrderId' }
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false, properties: { reason: { type: string, maxLength: 500 } } }
+      responses:
+        '200':
+          description: Pedido cancelado
+          content:
+            application/json:
+              schema: { type: object, properties: { data: { $ref: '#/components/schemas/Order' } } }
+        default: { $ref: '#/components/responses/Error' }
+  /orders/{externalOrderId}/payment-events:
+    post:
+      tags: [Pagamentos]
+      summary: Informa um evento de pagamento do pedido
+      description: |
+        Escopo `PAYMENT_EVENTS_WRITE`. O CÓRTEX só RECEBE o estado do pagamento (informado pelo canal/provedor); não cobra. Cada evento
+        tem um `eventId` único por canal (repetido = `DUPLICATE`, sem efeito). Estados por `providerRef`: PENDING → CONFIRMED | FAILED;
+        CONFIRMED → REFUNDED; FAILED e REFUNDED são finais. Evento mais antigo que o último aplicado é `STALE`. Valor confirmado diferente
+        do total NÃO confirma o pedido. Confirmar pagamento não cria venda, pagamento do balcão, movimento de caixa nem baixa de estoque.
+      parameters:
+        - { $ref: '#/components/parameters/ExternalOrderId' }
+        - { name: Idempotency-Key, in: header, required: false, schema: { type: string, minLength: 8, maxLength: 128 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PaymentEvent' }
+      responses:
+        '201':
+          description: Pagamento registrado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentEventResult' }
+        '200':
+          description: Evento sem efeito novo (duplicado, antigo ou transição ignorada)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentEventResult' }
+        default: { $ref: '#/components/responses/Error' }
+components:
+  securitySchemes:
+    cortexSignature:
+      type: apiKey
+      in: header
+      name: X-Cortex-Signature
+      description: Use junto com `X-Cortex-Key` e `X-Cortex-Timestamp` (ver a descrição geral).
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    ExternalOrderId:
+      name: externalOrderId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 120, pattern: '^[A-Za-z0-9._:-]+$' }
+  responses:
+    Error:
+      description: Erro
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorBody' }
+  schemas:
+    ErrorBody:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [UNAUTHORIZED, INSUFFICIENT_SCOPE, CHANNEL_DISABLED, RATE_LIMITED, INVALID_REQUEST, INVALID_JSON, PAYLOAD_TOO_LARGE, IDEMPOTENCY_KEY_REQUIRED, NOT_FOUND, PRODUCT_UNAVAILABLE, PRICE_MISMATCH, TOTAL_MISMATCH, ORDER_CONFLICT, INVALID_ORDER_STATE, PAYMENT_REF_IN_USE, INTERNAL_ERROR]
+            message: { type: string }
+            details: {}
+        requestId: { type: string }
+    Pagination:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        total: { type: integer }
+    Product:
+      type: object
+      properties:
+        sku: { type: string }
+        externalId: { type: string, nullable: true }
+        name: { type: string }
+        description: { type: string, nullable: true }
+        brand: { type: string, nullable: true }
+        unit: { type: string }
+        category:
+          type: object
+          nullable: true
+          properties: { id: { type: string }, name: { type: string } }
+        price: { type: number, description: Preço oficial do CÓRTEX em BRL (2 casas) }
+        currency: { type: string, enum: [BRL] }
+        inStock: { type: boolean }
+        availableQuantity: { type: integer, description: Só presente se o canal estiver configurado para expor a quantidade }
+        updatedAt: { type: string, format: date-time }
+    CreateOrder:
+      type: object
+      additionalProperties: false
+      required: [externalOrderId, items, total]
+      properties:
+        externalOrderId: { type: string, minLength: 1, maxLength: 120, pattern: '^[A-Za-z0-9._:-]+$' }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 200
+          items:
+            type: object
+            additionalProperties: false
+            required: [sku, quantity, unitPrice]
+            properties:
+              sku: { type: string }
+              quantity: { type: number, exclusiveMinimum: true, minimum: 0, description: Até 3 casas decimais }
+              unitPrice: { type: number, minimum: 0, description: O preço mostrado ao cliente (até 2 casas); precisa ser igual ao oficial }
+        total: { type: number, minimum: 0, description: Precisa ser igual à soma calculada pelo CÓRTEX }
+        currency: { type: string, enum: [BRL], default: BRL }
+        customer:
+          type: object
+          additionalProperties: false
+          required: [name]
+          properties:
+            name: { type: string }
+            document: { type: string }
+            email: { type: string, format: email }
+            phone: { type: string }
+        notes: { type: string, maxLength: 1000 }
+      description: Campos desconhecidos (inclusive `companyId` e `branchId`) são recusados; empresa e filial vêm da credencial.
+    Order:
+      type: object
+      properties:
+        orderId: { type: string, description: O `externalOrderId` do canal }
+        cortexOrderId: { type: string }
+        status: { type: string, enum: [RECEIVED, ACCEPTED, REJECTED, CANCELLED, CONVERTED, EXPIRED] }
+        paymentStatus: { type: string, enum: [UNKNOWN, PENDING, CONFIRMED, FAILED, REFUNDED] }
+        total: { type: number, nullable: true }
+        currency: { type: string, enum: [BRL] }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              sku: { type: string }
+              name: { type: string }
+              quantity: { type: number }
+              unitPrice: { type: number }
+              lineTotal: { type: number }
+        statusReason: { type: string, nullable: true }
+        statusChangedAt: { type: string, format: date-time, nullable: true }
+        receivedAt: { type: string, format: date-time }
+    OrderResponse:
+      type: object
+      properties:
+        data: { $ref: '#/components/schemas/Order' }
+        replayed: { type: boolean }
+    PaymentEvent:
+      type: object
+      additionalProperties: false
+      required: [eventId, providerRef, status, amount]
+      properties:
+        eventId: { type: string, maxLength: 120, pattern: '^[A-Za-z0-9._:-]+$', description: Único por canal; é a chave de idempotência do evento }
+        providerRef: { type: string, maxLength: 120, pattern: '^[A-Za-z0-9._:-]+$', description: Identifica o pagamento no provedor; único por canal }
+        status: { type: string, enum: [PENDING, CONFIRMED, FAILED, REFUNDED] }
+        amount: { type: number, minimum: 0, description: Até 2 casas }
+        occurredAt: { type: string, format: date-time, description: Quando aconteceu no provedor; evento mais antigo que o último aplicado é ignorado }
+    PaymentEventResult:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            outcome: { type: string, enum: [CREATED, UPDATED, IGNORED, STALE, DUPLICATE] }
+            reason: { type: string }
+            paymentStatus: { type: string, enum: [UNKNOWN, PENDING, CONFIRMED, FAILED, REFUNDED], description: Estado de pagamento do PEDIDO }
+            orderStatus: { type: string }

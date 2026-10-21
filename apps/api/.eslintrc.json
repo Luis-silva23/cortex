@@ -1,0 +1,37 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module"
+  },
+  "plugins": ["@typescript-eslint"],
+  "extends": ["eslint:recommended", "plugin:@typescript-eslint/recommended"],
+  "env": {
+    "node": true,
+    "jest": true,
+    "es2020": true
+  },
+  "ignorePatterns": ["dist", "node_modules", "*.js"],
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/no-unused-vars": ["warn", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-console": "off",
+    // require() tardio é um padrão DELIBERADO e documentado neste código
+    // (ver comentários em notification.job.ts/scheduler.ts/queue.ts) para
+    // evitar import circular entre módulos — não é um descuido a proibir.
+    "@typescript-eslint/no-require-imports": "off",
+    // `declare global { namespace Express { ... } }` é a forma idiomática
+    // padrão do TypeScript para estender tipos do Express (auth.ts,
+    // requestContext.ts) — não um uso legado de namespace a evitar.
+    "@typescript-eslint/no-namespace": "off",
+    // Achados reais, pré-existentes, de baixa severidade — fora do escopo
+    // desta tarefa (configurar CI/lint em si). Rebaixados a warning para
+    // não travar o pipeline logo na primeira ativação do lint por algo que
+    // não faz parte desta mudança; ainda aparecem no relatório do CI.
+    "no-case-declarations": "warn",
+    "@typescript-eslint/no-unsafe-function-type": "warn",
+    "@typescript-eslint/prefer-as-const": "warn",
+    "no-useless-escape": "warn"
+  }
+}

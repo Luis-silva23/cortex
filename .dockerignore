@@ -1,0 +1,31 @@
+# Nunca deixar node_modules/build output local vazar pro build context —
+# cada Dockerfile decide o que instalar/compilar DENTRO da imagem; copiar
+# isso daqui de fora só infla o contexto e pode misturar binários nativos
+# (bcrypt) compilados pra plataforma errada (Windows dev vs Linux container).
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/build
+**/coverage
+
+# Segredos reais nunca entram na imagem — só .env.example é versionado
+# (ver .gitignore, mesma regra).
+.env
+.env.*
+!.env.example
+
+# Nada específico de máquina de desenvolvedor / controle de versão.
+.git
+.gitignore
+*.log
+.DS_Store
+Thumbs.db
+
+# Apps que não fazem parte de nenhuma imagem Docker (mobile/tv são builds
+# Expo/EAS, não containers; pdv-desktop é Electron/instalador). apps/super-
+# admin SAIU desta lista em 2026-09-15: investigado e confirmado como app
+# real e completo (não um stub), agora com seu próprio Dockerfile.
+apps/mobile
+apps/tv
+apps/pdv-desktop

@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "outDir": ".",
+    "rootDir": ".",
+    "module": "commonjs",
+    "esModuleInterop": true
+  },
+  "include": ["*.ts", "utils/**/*.ts", "types.ts", "validators.ts", "src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

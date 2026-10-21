@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "CÓRTEX Painel",
+    "slug": "ln-system-tv",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.lnsystem.tv"
+    },
+    "android": {
+      "package": "com.lnsystem.tv",
+      "adaptiveIcon": {
+        "backgroundColor": "#091018",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 1,
+      "allowBackup": false,
+      "blockedPermissions": [
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "@react-native-tvos/config-tv",
+        {
+          "isTV": true,
+          "androidTVBanner": "./assets/tv-banner.png"
+        }
+      ],
+      "expo-secure-store",
+      "./plugins/with-release-signing"
+    ]
+  }
+}

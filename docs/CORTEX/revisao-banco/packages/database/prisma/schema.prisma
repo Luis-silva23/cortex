@@ -1,0 +1,3805 @@
+// LN System — core Prisma schema.
+//
+// Reconstructed from the production database's own DDL (pg_dump), since the
+// original schema.prisma was lost. Every table/column/type/constraint/index
+// below mirrors the live database exactly; nothing here is speculative.
+//
+// Row Level Security is the real tenant-isolation boundary for this schema,
+// not foreign keys: `companyId`/`branchId` columns on most tables are plain
+// scalars with NO database foreign key (isolation is enforced by the
+// `rls_company_match` / `rls_company_branch_match` policies in
+// prisma/migrations/0_init/migration.sql, which Prisma has no syntax for).
+//
+// Every RLS-enabled table has BOTH `ENABLE ROW LEVEL SECURITY` and `FORCE
+// ROW LEVEL SECURITY` in that migration — Postgres exempts a table's OWNER
+// from RLS unless FORCE is also set, and the role that runs `prisma migrate
+// deploy` (and therefore owns every table it creates) is the same role the
+// API connects as. Without FORCE, confirmed by direct testing against a
+// real instance: RLS silently does nothing — full cross-tenant read AND
+// write, even with zero session context set. This was the single biggest
+// gap the pg_dump-based reconstruction missed (FORCE isn't visible in a
+// plain `\dt`/schema browse, only by testing).
+// A handful of tables (Branch, User, License, Role, Permission,
+// InstallmentPolicy, Partner, AuditLog) DO carry a real companyId/branchId
+// foreign key — that split is preserved exactly as found in the database,
+// not normalized away.
+//
+// No `id` column has a database-level DEFAULT anywhere in the dump (no
+// gen_random_uuid()/uuid_generate_v4()) — but `@default(uuid())` is a
+// Prisma-side default (computed by the client before INSERT), which never
+// shows up in pg_dump DDL either way. apps/api's code never supplies `id`
+// on any `.create()` call, which only works if Prisma is generating it —
+// confirmed by cross-referencing against the actual route/service code, so
+// `@default(uuid())` was added to every `@id` field here despite the dump
+// itself being silent on the question.
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────
+
+enum AccountStatus {
+  PENDING
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+enum ActivationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AuditAction {
+  CREATE
+  READ
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  LOGIN_FAILED
+  PASSWORD_RESET
+  PERMISSION_CHANGED
+  LICENSE_APPROVED
+  LICENSE_SUSPENDED
+  DEVICE_ACTIVATED
+  DEVICE_BLOCKED
+}
+
+enum CashMovementType {
+  OPENING
+  SALE
+  WITHDRAWAL
+  DEPOSIT
+  CLOSING
+  CANCELLATION
+  RETURN
+}
+
+enum CashRegisterStatus {
+  OPEN
+  CLOSED
+}
+
+enum ChecklistItemStatus {
+  OK
+  DAMAGED
+  NOT_CHECKED
+}
+
+enum CustomerType {
+  INDIVIDUAL
+  BUSINESS
+}
+
+enum DamageReason {
+  EXPIRED
+  DAMAGED
+  LOST
+  THEFT
+  DEFECTIVE
+  OTHER
+}
+
+enum DeviceSessionStatus {
+  ACTIVE
+  ENDED
+  FORCE_ENDED
+}
+
+enum DeviceStatus {
+  PENDING
+  ACTIVE
+  BLOCKED
+  REVOKED
+}
+
+enum DeviceType {
+  DESKTOP
+  TABLET
+  MOBILE
+  POS
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum FiscalDocumentStatus {
+  DRAFT
+  PENDING
+  AUTHORIZED
+  REJECTED
+  CANCELLED
+  CONTINGENCY
+}
+
+enum FiscalDocumentType {
+  NFCE
+  NFE
+}
+
+enum IdempotencyStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+/// Catálogo fixo dos módulos que uma empresa pode desativar — só os módulos
+/// operacionais "opcionais" do blueprint (uma oficina pequena pode não usar
+/// Fiscal ainda; uma revenda pura pode não usar Oficina). Cadastros
+/// (clientes/veículos/produtos/fornecedores), autenticação, usuários/perfis/
+/// permissões e configurações NUNCA são desativáveis — são a base que tudo
+/// mais depende, desativá-los não é uma decisão de módulo, é inviabilizar o
+/// sistema inteiro.
+enum SystemModule {
+  ESTOQUE
+  COMPRAS
+  VENDAS
+  FINANCEIRO
+  FISCAL
+  OFICINA
+  POS_VENDA
+  /// Canais externos (site próprio, iFood, marketplaces). Único módulo que nasce DESATIVADO (opt-in).
+  CANAIS
+}
+
+enum InventoryStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum LicenseStatus {
+  PENDING_APPROVAL
+  ACTIVE
+  SUSPENDED
+  EXPIRED
+  CANCELLED
+}
+
+enum LicenseType {
+  TRIAL
+  BASIC
+  PROFESSIONAL
+  ENTERPRISE
+}
+
+enum MovementType {
+  PURCHASE
+  SALE
+  RETURN
+  ADJUSTMENT
+  TRANSFER_OUT
+  TRANSFER_IN
+  PRODUCTION
+  LOSS
+  INVENTORY
+  SUPPLIER_RETURN
+}
+
+enum PartnerDiscountType {
+  PERCENTAGE
+  FIXED
+}
+
+enum PaymentMethod {
+  CASH
+  DEBIT_CARD
+  CREDIT_CARD
+  PIX
+  BANK_TRANSFER
+  CHECK
+  VOUCHER
+  OTHER
+  /// Convênio de funcionário (desconto em folha)
+  EMPLOYEE_AGREEMENT
+  /// Convênio com empresa externa (conta a receber da conveniada)
+  COMPANY_AGREEMENT
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  REFUNDED
+}
+
+enum PermissionScope {
+  GLOBAL
+  BRANCH
+  OWN
+}
+
+enum ProductType {
+  PRODUCT
+  SERVICE
+  COMBO
+}
+
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  CONFIRMED
+  RECEIVED
+  CANCELLED
+}
+
+enum QuoteStatus {
+  DRAFT
+  SENT
+  APPROVED
+  REJECTED
+  EXPIRED
+  CONVERTED
+}
+
+enum SaleStatus {
+  PENDING
+  PAID
+  PARTIALLY_PAID
+  CANCELLED
+  RETURNED
+}
+
+enum ServiceOrderItemType {
+  SERVICE
+  PART
+}
+
+enum ServiceOrderStatus {
+  ENTRADA
+  DIAGNOSTICO
+  ORCAMENTO
+  APROVACAO
+  EXECUCAO
+  PRONTO
+  ENTREGA
+  ENCERRADA
+  CANCELADA
+}
+
+enum TEFPaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  UNKNOWN
+  CANCELLED
+  REFUNDED
+}
+
+enum TransferStatus {
+  PENDING
+  IN_TRANSIT
+  RECEIVED
+  CANCELLED
+}
+
+enum UserType {
+  SUPER_ADMIN
+  COMPANY_ADMIN
+  MANAGER
+  OPERATOR
+  MECHANIC
+  VIEWER
+}
+
+enum VehicleType {
+  MOTORCYCLE
+  CAR
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// REVISÕES / PÓS-VENDA / AGENDA — domínio novo (2026-09-14), modelado do
+// zero seguindo exatamente as convenções do resto do schema (RLS via
+// companyId/branchId (com FK composta desde 2026-10-15), tabelas de evento imutáveis sem
+// companyId próprio isoladas via join com a tabela pai, @@map snake_case).
+// ─────────────────────────────────────────────────────────────────────────
+
+enum FollowUpStatus {
+  PENDING
+  SCHEDULED
+  CANCELLED
+}
+
+enum FollowUpEventType {
+  CONTACT_ATTEMPTED
+  CUSTOMER_ACCEPTED
+  CUSTOMER_DECLINED
+  CUSTOMER_CANCELLED
+  RESCHEDULE_REQUESTED
+}
+
+enum ContactChannel {
+  PHONE
+  WHATSAPP
+  EMAIL
+  SMS
+  IN_PERSON
+}
+
+enum AppointmentStatus {
+  PROPOSED
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum AppointmentEventType {
+  PROPOSED
+  CONFIRMED
+  RESCHEDULED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// MODELS
+// ─────────────────────────────────────────────────────────────────────────
+
+/// companyId/branchId/supplierId are plain scalars — no FK in the database,
+/// isolation is via RLS (rls_company_match) only.
+///
+/// A partial UNIQUE index exists only at the database level and cannot be
+/// expressed in the Prisma schema (no WHERE-filtered @@unique): at most one
+/// row with referenceType='Reversal' per referenceId — see migration
+/// `add_accounts_reversal_unique_reference`. Backstops
+/// FinancialService.reversePayable's application-level guard (mesmo padrão
+/// já usado em CashRegister/Inventory).
+model AccountsPayable {
+  id            String        @id @default(uuid())
+  companyId     String
+  branchId      String?
+  supplierId    String?
+  description   String
+  amount        Decimal       @db.Decimal(10, 2)
+  dueDate       DateTime
+  paidDate      DateTime?
+  status        AccountStatus @default(PENDING)
+  referenceType String?
+  referenceId   String?
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  supplier Supplier? @relation("AccountsPayable_supplierId", fields: [companyId, supplierId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("AccountsPayable_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("AccountsPayable_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([branchId])
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([dueDate])
+  @@index([status])
+  @@index([supplierId])
+  @@map("accounts_payable")
+}
+
+/// companyId/branchId/customerId are plain scalars — no FK, RLS-enforced.
+///
+/// Same partial UNIQUE index note as AccountsPayable — see migration
+/// `add_accounts_reversal_unique_reference` (at most one
+/// referenceType='Reversal' row per referenceId), backstopping
+/// FinancialService.reverseReceivable's application-level guard.
+model AccountsReceivable {
+  id            String        @id @default(uuid())
+  companyId     String
+  branchId      String?
+  customerId    String?
+  description   String
+  amount        Decimal       @db.Decimal(10, 2)
+  dueDate       DateTime
+  paidDate      DateTime?
+  status        AccountStatus @default(PENDING)
+  referenceType String?
+  referenceId   String?
+  /// Conta de convênio: empresa conveniada ou convênio de funcionário
+  agreementCompanyId  String?
+  employeeAgreementId String?
+  collectionAttempts  CollectionAttempt[]
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  agreementCompany AgreementCompany? @relation("AccountsReceivable_agreementCompanyId", fields: [companyId, agreementCompanyId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  customer Customer? @relation("AccountsReceivable_customerId", fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  employeeAgreement EmployeeAgreement? @relation("AccountsReceivable_employeeAgreementId", fields: [companyId, employeeAgreementId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("AccountsReceivable_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("AccountsReceivable_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([branchId])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@index([dueDate])
+  @@index([status])
+  @@index([agreementCompanyId])
+  @@index([employeeAgreementId])
+  @@map("accounts_receivable")
+}
+
+model Activation {
+  id             String           @id @default(uuid())
+  licenseId      String
+  license        License          @relation(fields: [licenseId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  deviceId       String
+  device         Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  userId         String
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  activationCode String           @unique
+  status         ActivationStatus @default(PENDING)
+  approvedBy     String?
+  approvedAt     DateTime?
+  activatedAt    DateTime         @default(now())
+  expiresAt      DateTime?
+  ipAddress      String?
+
+  @@index([deviceId])
+  @@index([licenseId])
+  @@index([status])
+  @@index([userId])
+  @@map("activations")
+}
+
+model AuditLog {
+  id        String      @id @default(uuid())
+  companyId String?
+  company   Company?    @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  userId    String?
+  user      User?       @relation(fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  action    AuditAction
+  entity    String
+  entityId  String?
+  oldValue  String?
+  newValue  String?
+  ipAddress String?
+  userAgent String?
+  createdAt DateTime    @default(now())
+
+  @@index([action])
+  @@index([companyId, createdAt])
+  @@index([companyId])
+  @@index([createdAt])
+  @@index([entity, entityId])
+  @@index([userId, action])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model Branch {
+  id             String   @id @default(uuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  name           String
+  document       String?
+  address        String?
+  city           String?
+  state          String?
+  zipCode        String?
+  phone          String?
+  stateRegistration String?
+  email             String?
+  whatsapp          String?
+  street            String?
+  number            String?
+  complement        String?
+  district          String?
+  isActive       Boolean  @default(true)
+  isHeadquarter  Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  users User[]
+
+  transferFromBranchs Transfer[] @relation("Transfer_fromBranchId")
+  transferToBranchs Transfer[] @relation("Transfer_toBranchId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  accountsPayablesInBranch AccountsPayable[] @relation("AccountsPayable_branch")
+  accountsReceivablesInBranch AccountsReceivable[] @relation("AccountsReceivable_branch")
+  agendaUnavailabilitysInBranch AgendaUnavailability[] @relation("AgendaUnavailability_branch")
+  agreementCompanysInBranch AgreementCompany[] @relation("AgreementCompany_branch")
+  appointmentsInBranch Appointment[] @relation("Appointment_branch")
+  businessCalendarExceptionsInBranch BusinessCalendarException[] @relation("BusinessCalendarException_branch")
+  businessHourssInBranch BusinessHours[] @relation("BusinessHours_branch")
+  cashRegistersInBranch CashRegister[] @relation("CashRegister_branch")
+  channelApiCredentialsInBranch ChannelApiCredential[] @relation("ChannelApiCredential_branch")
+  channelEventsInBranch ChannelEvent[] @relation("ChannelEvent_branch")
+  channelInboundEventsInBranch ChannelInboundEvent[] @relation("ChannelInboundEvent_branch")
+  channelOutboxsInBranch ChannelOutbox[] @relation("ChannelOutbox_branch")
+  channelProductLinksInBranch ChannelProductLink[] @relation("ChannelProductLink_branch")
+  collectionAttemptsInBranch CollectionAttempt[] @relation("CollectionAttempt_branch")
+  companyModuleSettingsInBranch CompanyModuleSetting[] @relation("CompanyModuleSetting_branch")
+  damageRecordsInBranch DamageRecord[] @relation("DamageRecord_branch")
+  deviceSessionsInBranch DeviceSession[] @relation("DeviceSession_branch")
+  discountEventsInBranch DiscountEvent[] @relation("DiscountEvent_branch")
+  employeeAgreementChargesInBranch EmployeeAgreementCharge[] @relation("EmployeeAgreementCharge_branch")
+  employeeAgreementsInBranch EmployeeAgreement[] @relation("EmployeeAgreement_branch")
+  employeePayrollDeductionsInBranch EmployeePayrollDeduction[] @relation("EmployeePayrollDeduction_branch")
+  externalOrderItemsInBranch ExternalOrderItem[] @relation("ExternalOrderItem_branch")
+  externalOrdersInBranch ExternalOrder[] @relation("ExternalOrder_branch")
+  externalPaymentsInBranch ExternalPayment[] @relation("ExternalPayment_branch")
+  fiscalConfigsInBranch FiscalConfig[] @relation("FiscalConfig_branch")
+  fiscalDocumentsInBranch FiscalDocument[] @relation("FiscalDocument_branch")
+  followUpsInBranch FollowUp[] @relation("FollowUp_branch")
+  fulfillmentsInBranch Fulfillment[] @relation("Fulfillment_branch")
+  importBatchsInBranch ImportBatch[] @relation("ImportBatch_branch")
+  installmentPolicysInBranch InstallmentPolicy[] @relation("InstallmentPolicy_branch")
+  inventorysInBranch Inventory[] @relation("Inventory_branch")
+  partnersInBranch Partner[] @relation("Partner_branch")
+  paymentExceptionsInBranch PaymentException[] @relation("PaymentException_branch")
+  paymentSettingsInBranch PaymentSetting[] @relation("PaymentSetting_branch")
+  policyChangesInBranch PolicyChange[] @relation("PolicyChange_branch")
+  policySettingsInBranch PolicySetting[] @relation("PolicySetting_branch")
+  productsInBranch Product[] @relation("Product_branch")
+  purchaseOrdersInBranch PurchaseOrder[] @relation("PurchaseOrder_branch")
+  quoteEventsInBranch QuoteEvent[] @relation("QuoteEvent_branch")
+  quotesInBranch Quote[] @relation("Quote_branch")
+  revisionsInBranch Revision[] @relation("Revision_branch")
+  salesInBranch Sale[] @relation("Sale_branch")
+  salesChannelsInBranch SalesChannel[] @relation("SalesChannel_branch")
+  serviceOrderWarrantysInBranch ServiceOrderWarranty[] @relation("ServiceOrderWarranty_branch")
+  serviceOrdersInBranch ServiceOrder[] @relation("ServiceOrder_branch")
+  stockMovementsInBranch StockMovement[] @relation("StockMovement_branch")
+  stockReservationsInBranch StockReservation[] @relation("StockReservation_branch")
+  supplierReturnEventsInBranch SupplierReturnEvent[] @relation("SupplierReturnEvent_branch")
+  supplierReturnItemsInBranch SupplierReturnItem[] @relation("SupplierReturnItem_branch")
+  supplierReturnsInBranch SupplierReturn[] @relation("SupplierReturn_branch")
+  supportTicketAttachmentsInBranch SupportTicketAttachment[] @relation("SupportTicketAttachment_branch")
+  supportTicketEventsInBranch SupportTicketEvent[] @relation("SupportTicketEvent_branch")
+  supportTicketMessagesInBranch SupportTicketMessage[] @relation("SupportTicketMessage_branch")
+  supportTicketsInBranch SupportTicket[] @relation("SupportTicket_branch")
+  warrantyClaimsInBranch WarrantyClaim[] @relation("WarrantyClaim_branch")
+  userBranchesInBranch UserBranch[] @relation("UserBranch_branch")
+  @@unique([companyId, id])
+  @@map("branches")
+}
+
+model CashMovement {
+  id              String            @id @default(uuid())
+  cashRegisterId  String
+  cashRegister    CashRegister      @relation(fields: [cashRegisterId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  movementType    CashMovementType
+  amount          Decimal           @db.Decimal(10, 2)
+  paymentMethod   PaymentMethod?
+  referenceType   String?
+  referenceId     String?
+  notes           String?
+  userId          String
+  requestedBy     String?
+  authorizedBy    String?
+  createdAt       DateTime          @default(now())
+
+  @@index([cashRegisterId])
+  @@index([createdAt])
+  @@index([movementType])
+  @@index([referenceType, referenceId])
+  @@map("cash_movements")
+}
+
+/// `status` has no DB default (unlike every other enum-status column in this
+/// schema) — verified against the source DDL, not an omission.
+/// Two partial UNIQUE indexes exist only at the database level and cannot be
+/// expressed in the Prisma schema (Prisma has no WHERE-filtered @@unique):
+/// one open register per (branchId, registerNumber), and one open register
+/// per userId — see migration.sql for cash_registers_one_open_per_*.
+model CashRegister {
+  id              String              @id @default(uuid())
+  companyId       String
+  branchId        String
+  userId          String
+  registerNumber  Int
+  status          CashRegisterStatus
+  openingAmount   Decimal             @db.Decimal(10, 2)
+  expectedAmount  Decimal             @default(0) @db.Decimal(10, 2)
+  actualAmount    Decimal?            @db.Decimal(10, 2)
+  difference      Decimal?            @db.Decimal(10, 2)
+  openedAt        DateTime            @default(now())
+  closedAt        DateTime?
+  closedBy        String?
+  notes           String?
+  /// NORMAL | FORCED (forçado por gerência/administração, com motivo e as pendências do momento)
+  closeType       String              @default("NORMAL")
+  forcedReason    String?
+  pendingSnapshot Json?
+  /// Resumo do fechamento (esperado × informado por forma de pagamento, período, vendas, responsáveis) — 2026-09-28
+  closingSummary  Json?
+  /// Motivo informado quando o valor informado diverge do esperado
+  differenceReason String?
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+
+  movements CashMovement[]
+
+  user User @relation("CashRegister_userId", fields: [companyId, userId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  saleCashRegisters Sale[] @relation("Sale_cashRegisterId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("CashRegister_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("CashRegister_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([branchId])
+  @@index([branchId, status])
+  @@index([openedAt])
+  @@index([status])
+  @@index([userId])
+  @@index([userId, status])
+  @@map("cash_registers")
+}
+
+model Category {
+  id          String     @id @default(uuid())
+  companyId   String
+  name        String
+  description String?
+  parentId    String?
+  parent      Category?  @relation("CategoryHierarchy", fields: [companyId, parentId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  children    Category[] @relation("CategoryHierarchy")
+  isActive    Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  products Product[]
+
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("Category_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([parentId])
+  @@map("categories")
+}
+
+/// comboId and productId both reference Product, hence the two named
+/// relations to disambiguate which side of the combo each is.
+model ComboItem {
+  id       String  @id @default(uuid())
+  comboId  String
+  combo    Product @relation("ComboItemCombo", fields: [comboId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  productId String
+  product  Product @relation("ComboItemProduct", fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  quantity Decimal @db.Decimal(10, 3)
+
+  @@unique([comboId, productId])
+  @@map("combo_items")
+}
+
+model CommissionRule {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String
+  serviceType String?
+  percentage  Decimal  @db.Decimal(5, 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company Company @relation("CommissionRule_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId])
+  @@index([isActive])
+  @@map("commission_rules")
+}
+
+model Company {
+  id        String   @id @default(uuid())
+  name      String
+  document  String   @unique
+  email     String
+  phone     String?
+  /// Razão social (`name` é o nome fantasia exibido)
+  legalName             String?
+  stateRegistration     String?
+  municipalRegistration String?
+  /// Regime tributário do emitente (CRT da NF-e/NFC-e): SIMPLES_NACIONAL | SIMPLES_NACIONAL_EXCESSO | REGIME_NORMAL | MEI
+  taxRegime             String?
+  whatsapp              String?
+  contactName           String?
+  zipCode               String?
+  street                String?
+  number                String?
+  complement            String?
+  district              String?
+  city                  String?
+  state                 String?
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  auditLogs           AuditLog[]
+  branches            Branch[]
+  commercialLead      CommercialLead? @relation("CommercialLead_company")
+  installmentPolicies InstallmentPolicy[]
+  productBarcodes     ProductBarcode[]
+  privacyRequests     PrivacyRequest[]
+  productImages       ProductImage[]
+  refreshTokens       RefreshToken[]
+  licenses            License[]
+  partners            Partner[]
+  permissions         Permission[]
+  roles               Role[]
+  users               User[]
+
+  accountsPayablesInCompany AccountsPayable[] @relation("AccountsPayable_company")
+  accountsReceivablesInCompany AccountsReceivable[] @relation("AccountsReceivable_company")
+  agendaUnavailabilitysInCompany AgendaUnavailability[] @relation("AgendaUnavailability_company")
+  agreementCompanysInCompany AgreementCompany[] @relation("AgreementCompany_company")
+  appointmentsInCompany Appointment[] @relation("Appointment_company")
+  businessCalendarExceptionsInCompany BusinessCalendarException[] @relation("BusinessCalendarException_company")
+  businessHourssInCompany BusinessHours[] @relation("BusinessHours_company")
+  cashRegistersInCompany CashRegister[] @relation("CashRegister_company")
+  categorysInCompany Category[] @relation("Category_company")
+  channelApiCredentialsInCompany ChannelApiCredential[] @relation("ChannelApiCredential_company")
+  channelEventsInCompany ChannelEvent[] @relation("ChannelEvent_company")
+  channelInboundEventsInCompany ChannelInboundEvent[] @relation("ChannelInboundEvent_company")
+  channelOutboxsInCompany ChannelOutbox[] @relation("ChannelOutbox_company")
+  channelProductLinksInCompany ChannelProductLink[] @relation("ChannelProductLink_company")
+  collectionAttemptsInCompany CollectionAttempt[] @relation("CollectionAttempt_company")
+  commissionRulesInCompany CommissionRule[] @relation("CommissionRule_company")
+  companyModuleSettingsInCompany CompanyModuleSetting[] @relation("CompanyModuleSetting_company")
+  customersInCompany Customer[] @relation("Customer_company")
+  damageRecordsInCompany DamageRecord[] @relation("DamageRecord_company")
+  deviceSessionsInCompany DeviceSession[] @relation("DeviceSession_company")
+  discountEventsInCompany DiscountEvent[] @relation("DiscountEvent_company")
+  discountRulesInCompany DiscountRule[] @relation("DiscountRule_company")
+  employeeAgreementChargesInCompany EmployeeAgreementCharge[] @relation("EmployeeAgreementCharge_company")
+  employeeAgreementsInCompany EmployeeAgreement[] @relation("EmployeeAgreement_company")
+  employeePayrollDeductionsInCompany EmployeePayrollDeduction[] @relation("EmployeePayrollDeduction_company")
+  externalOrderItemsInCompany ExternalOrderItem[] @relation("ExternalOrderItem_company")
+  externalOrdersInCompany ExternalOrder[] @relation("ExternalOrder_company")
+  externalPaymentsInCompany ExternalPayment[] @relation("ExternalPayment_company")
+  fiscalConfigsInCompany FiscalConfig[] @relation("FiscalConfig_company")
+  fiscalDocumentsInCompany FiscalDocument[] @relation("FiscalDocument_company")
+  followUpsInCompany FollowUp[] @relation("FollowUp_company")
+  fulfillmentsInCompany Fulfillment[] @relation("Fulfillment_company")
+  importBatchsInCompany ImportBatch[] @relation("ImportBatch_company")
+  inventorysInCompany Inventory[] @relation("Inventory_company")
+  invoicesInCompany Invoice[] @relation("Invoice_company")
+  mechanicCommissionsInCompany MechanicCommission[] @relation("MechanicCommission_company")
+  motorcyclesInCompany Motorcycle[] @relation("Motorcycle_company")
+  paymentExceptionsInCompany PaymentException[] @relation("PaymentException_company")
+  paymentSettingsInCompany PaymentSetting[] @relation("PaymentSetting_company")
+  paymentsInCompany Payment[] @relation("Payment_company")
+  policyChangesInCompany PolicyChange[] @relation("PolicyChange_company")
+  policySettingsInCompany PolicySetting[] @relation("PolicySetting_company")
+  productsInCompany Product[] @relation("Product_company")
+  purchaseOrdersInCompany PurchaseOrder[] @relation("PurchaseOrder_company")
+  quoteEventsInCompany QuoteEvent[] @relation("QuoteEvent_company")
+  quotesInCompany Quote[] @relation("Quote_company")
+  revisionsInCompany Revision[] @relation("Revision_company")
+  salesInCompany Sale[] @relation("Sale_company")
+  salesChannelsInCompany SalesChannel[] @relation("SalesChannel_company")
+  serviceOrderWarrantysInCompany ServiceOrderWarranty[] @relation("ServiceOrderWarranty_company")
+  serviceOrdersInCompany ServiceOrder[] @relation("ServiceOrder_company")
+  stockMovementsInCompany StockMovement[] @relation("StockMovement_company")
+  stockReservationsInCompany StockReservation[] @relation("StockReservation_company")
+  supplierReturnEventsInCompany SupplierReturnEvent[] @relation("SupplierReturnEvent_company")
+  supplierReturnItemsInCompany SupplierReturnItem[] @relation("SupplierReturnItem_company")
+  supplierReturnsInCompany SupplierReturn[] @relation("SupplierReturn_company")
+  suppliersInCompany Supplier[] @relation("Supplier_company")
+  supportTicketAttachmentsInCompany SupportTicketAttachment[] @relation("SupportTicketAttachment_company")
+  supportTicketEventsInCompany SupportTicketEvent[] @relation("SupportTicketEvent_company")
+  supportTicketMessagesInCompany SupportTicketMessage[] @relation("SupportTicketMessage_company")
+  supportTicketsInCompany SupportTicket[] @relation("SupportTicket_company")
+  tefPaymentsInCompany TefPayment[] @relation("TefPayment_company")
+  transfersInCompany Transfer[] @relation("Transfer_company")
+  vehicleEntryChecklistsInCompany VehicleEntryChecklist[] @relation("VehicleEntryChecklist_company")
+  warrantyClaimsInCompany WarrantyClaim[] @relation("WarrantyClaim_company")
+  userBranchesInCompany UserBranch[] @relation("UserBranch_company")
+  @@index([isActive, createdAt])
+  @@map("companies")
+}
+
+/// Ativação/desativação de módulos por empresa (branchId null) ou por
+/// filial específica (override). Ausência de linha = módulo HABILITADO
+/// (opt-out, não opt-in — uma empresa existente sem nenhuma configuração
+/// aqui continua funcionando exatamente como hoje; o oposto quebraria
+/// todo tenant já em produção no dia em que esta tabela fosse criada).
+/// NUNCA apaga dado de negócio — é só um gate checado no middleware
+/// (requireModuleEnabled), nunca uma ação de exclusão/CASCADE; histórico
+/// de OS/vendas/estoque etc. de um módulo desativado continua intacto e
+/// consultável, só a escrita/operação fica bloqueada enquanto desativado.
+/// Duas UNIQUE parciais reais no banco (Prisma não expressa `@@unique`
+/// com WHERE) — mesmo padrão de CashRegister/Inventory: uma linha
+/// company-wide (branchId NULL) por empresa+módulo, e uma linha por
+/// filial+módulo quando houver override — ver migration
+/// `add_company_module_settings`.
+model CompanyModuleSetting {
+  id             String       @id @default(uuid())
+  companyId      String
+  branchId       String?
+  module         SystemModule
+  isEnabled      Boolean      @default(true)
+  disabledBy     String?
+  disabledAt     DateTime?
+  disabledReason String?
+  reenabledBy    String?
+  reenabledAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  company Company @relation("CompanyModuleSetting_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("CompanyModuleSetting_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId])
+  @@index([companyId, branchId])
+  @@map("company_module_settings")
+}
+
+/// Configuração de pagamento por empresa (branchId null) com override por filial, campo a campo. Ausência de valor =
+/// padrão (controle de cédulas desligado, provedores MANUAL). Unicidade parcial no banco, como CompanyModuleSetting.
+model PaymentSetting {
+  id                      String   @id @default(uuid())
+  companyId               String
+  branchId                String?
+  /// Campos nulos herdam (filial → empresa → padrão).
+  cashDenominationControl Boolean?
+  /// Provedor registrado no servidor (payment-adapters): MANUAL = maquininha sem integração / PIX conciliado à mão.
+  cardProvider            String?
+  pixProvider             String?
+  /// Identificador do terminal/POS no provedor (não é segredo; credenciais nunca ficam nesta tabela).
+  terminalId              String?
+  updatedBy               String?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  company Company @relation("PaymentSetting_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("PaymentSetting_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId])
+  @@map("payment_settings")
+}
+
+/// Telemetria real enviada pelo equipamento (PDV Electron): host (CPU/RAM/disco) e rede até a API. Empresa, filial e
+/// equipamento vêm da sessão de equipamento do usuário autenticado, nunca do corpo. Retenção: 30 dias (agendador).
+model DeviceTelemetry {
+  id            String   @id @default(uuid())
+  companyId     String
+  branchId      String?
+  deviceId      String
+  userId        String
+  collectedAt   DateTime
+  receivedAt    DateTime @default(now())
+  cpuLoadPct    Float?
+  memUsedPct    Float?
+  diskUsedPct   Float?
+  apiRttMs      Int?
+  packetLossPct Float?
+  /// versão do app CÓRTEX (package.json do PDV)
+  appVersion    String?
+  /// runtime do equipamento (ex.: "electron 28.3.3 · node 18.18.2 · chrome 120")
+  runtimeVersion String?
+  uptimeSec     Int?
+
+  @@unique([deviceId, collectedAt])
+  @@index([companyId, branchId, collectedAt])
+  @@map("device_telemetry")
+}
+
+/// Histórico de saúde: um incidente por componente enquanto o estado não é NORMAL (endedAt nulo = em aberto).
+model HealthIncident {
+  id        String    @id @default(uuid())
+  companyId String
+  branchId  String?
+  component String
+  status    String
+  detail    String?
+  startedAt DateTime  @default(now())
+  endedAt   DateTime?
+
+  @@index([companyId, branchId, startedAt])
+  @@index([endedAt])
+  @@map("health_incidents")
+}
+
+/// Limite de uma métrica do monitoramento. Escopo: global (empresa e filial nulas), empresa ou filial; o mais específico
+/// vence. Único por escopo+métrica (índice `monitoring_thresholds_scope_metric`, na migração). Só SUPER_ADMIN grava (RLS).
+model MonitoringThreshold {
+  id        String   @id @default(uuid())
+  companyId String?
+  branchId  String?
+  metric    String
+  attention Float
+  critical  Float
+  updatedBy String
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@index([companyId])
+  @@map("monitoring_thresholds")
+}
+
+/// Lote de importação (produtos, clientes, estoque): resultado de cada linha em `results`
+/// ([{ row, key, action: CREATED|UPDATED|UNCHANGED|ERROR, id?, error? }]). Movimentos de estoque da importação
+/// apontam para o lote (referenceType 'ImportBatch').
+model ImportBatch {
+  id            String    @id @default(uuid())
+  companyId     String
+  branchId      String?
+  type          String
+  userId        String
+  fileName      String?
+  totalRows     Int
+  importedRows  Int       @default(0)
+  unchangedRows Int       @default(0)
+  failedRows    Int       @default(0)
+  results       Json      @default("[]")
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  user User @relation("ImportBatch_userId", fields: [companyId, userId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("ImportBatch_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ImportBatch_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId, startedAt])
+  @@map("import_batches")
+}
+
+/// Histórico imutável das alterações de limites (quem, quando, de/para, motivo).
+model MonitoringThresholdChange {
+  id           String   @id @default(uuid())
+  companyId    String?
+  branchId     String?
+  metric       String
+  oldAttention Float?
+  oldCritical  Float?
+  newAttention Float?
+  newCritical  Float?
+  reason       String
+  changedBy    String
+  changedAt    DateTime @default(now())
+
+  @@index([companyId, changedAt])
+  @@map("monitoring_threshold_changes")
+}
+
+/// Alerta do monitoramento: condição fora do limite num alvo (central, filial ou equipamento). No máximo um aberto por
+/// tipo+alvo (`monitoring_alerts_one_open`); reincidência logo após encerrar reabre o mesmo (occurrences) em vez de criar outro.
+model MonitoringAlert {
+  id          String    @id @default(uuid())
+  source      String
+  companyId   String?
+  branchId    String?
+  deviceId    String?
+  type        String
+  metric      String
+  severity    String
+  value       Float?
+  threshold   Float?
+  detail      String?
+  occurrences Int       @default(1)
+  startedAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  endedAt     DateTime?
+  /// Tratamento humano enquanto aberto: OPEN | ACKNOWLEDGED | IN_PROGRESS. "Resolvido" é `endedAt` preenchido (o estado exposto é calculado).
+  handling       String    @default("OPEN")
+  assignedTo     String?
+  acknowledgedAt DateTime?
+  acknowledgedBy String?
+  /// Quem encerrou à mão (nulo = encerrado sozinho porque a condição voltou ao normal) e a justificativa.
+  resolvedBy     String?
+  resolutionNote String?
+
+  @@index([companyId, startedAt])
+  @@index([endedAt])
+  @@map("monitoring_alerts")
+}
+
+/// Histórico de tratamento do alerta (quem, quando, o quê). Imutável: sem UPDATE; DELETE só com o expurgo sinalizado. Só SUPER_ADMIN lê e grava.
+model MonitoringAlertEvent {
+  id        String   @id @default(uuid())
+  alertId   String
+  companyId String?
+  /// OPENED | REOPENED | SEVERITY_CHANGED | ACKNOWLEDGED | ASSIGNED | IN_PROGRESS | RESOLVED | AUTO_RESOLVED | NOTE | NOTIFIED | NOTIFICATION_SUPPRESSED
+  kind      String
+  actorId   String?
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@index([alertId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([createdAt])
+  @@map("monitoring_alert_events")
+}
+
+/// Amostra periódica da saúde de um serviço da plataforma (disponibilidade, latência, uso do servidor). Telemetria com retenção
+/// (MONITORING_SAMPLE_RETENTION_DAYS); coletada pelo job `evaluate-health` no intervalo MONITORING_SAMPLE_MINUTES. Só SUPER_ADMIN.
+model ServiceHealthSample {
+  id        String   @id @default(uuid())
+  sampledAt DateTime @default(now())
+  /// API | DATABASE | REDIS | QUEUES | HOST_CPU | HOST_MEMORY | HOST_DISK | BACKUP
+  service   String
+  /// NORMAL | ATTENTION | CRITICAL | OFFLINE (mesma escala do monitoramento por filial)
+  status    String
+  latencyMs Float?
+  valuePct  Float?
+  detail    String?
+
+  @@index([service, sampledAt])
+  @@index([sampledAt])
+  @@map("service_health_samples")
+}
+
+/// Funil comercial da PLATAFORMA (interessado → ... → cliente ativo): uma linha por oportunidade. `companyId` liga a oportunidade à empresa
+/// criada na implantação. Só SUPER_ADMIN. Nenhum dado de cliente final: só o nome comercial e uma anotação de contato.
+model CommercialLead {
+  id             String   @id @default(uuid())
+  name           String
+  contact        String?
+  source         String?
+  /// INTERESTED | DEMO | PROPOSAL | ONBOARDING | ACTIVE | SUSPENDED | CANCELLED
+  stage          String   @default("INTERESTED")
+  stageEnteredAt DateTime @default(now())
+  companyId      String?  @unique
+  closedReason   String?
+  createdBy      String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company Company?              @relation("CommercialLead_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  events  CommercialLeadEvent[]
+
+  @@index([stage, stageEnteredAt])
+  @@map("commercial_leads")
+}
+
+/// Cada mudança de etapa do funil (de onde, para onde, quem, quando): base do tempo em cada etapa e da conversão. Imutável.
+model CommercialLeadEvent {
+  id        String   @id @default(uuid())
+  leadId    String
+  fromStage String?
+  toStage   String
+  actorId   String
+  note      String?
+  createdAt DateTime @default(now())
+
+  lead CommercialLead @relation(fields: [leadId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([leadId, createdAt])
+  @@index([toStage, createdAt])
+  @@map("commercial_lead_events")
+}
+
+/// Entrega a um serviço externo (e-mail de alerta, evento de erro): base da deduplicação, dos limites de envio e do painel de consumo.
+/// Nunca guarda o conteúdo da mensagem nem segredo; `error` é a mensagem já mascarada. Telemetria com retenção. Só SUPER_ADMIN.
+model ExternalDelivery {
+  id        String   @id @default(uuid())
+  /// EMAIL | SENTRY
+  channel   String
+  /// SENT | FAILED | SUPPRESSED
+  status    String
+  dedupeKey String?
+  alertId   String?
+  error     String?
+  createdAt DateTime @default(now())
+
+  @@index([channel, createdAt])
+  @@index([dedupeKey, createdAt])
+  @@map("external_deliveries")
+}
+
+/// Ajustes de runtime do monitoramento (ligar/desligar notificações e coleta não crítica, limites). O ambiente continua sendo o teto: o ajuste
+/// só restringe. Só SUPER_ADMIN lê e grava.
+model MonitoringSetting {
+  key       String   @id
+  value     Json
+  updatedBy String
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@map("monitoring_settings")
+}
+
+model Customer {
+  id           String       @id @default(uuid())
+  companyId    String
+  customerType CustomerType @default(INDIVIDUAL)
+  name         String
+  document     String?
+  email        String?
+  phone        String?
+  mobile       String?
+  birthDate    DateTime?
+  address      String?
+  city         String?
+  state        String?
+  zipCode      String?
+  whatsapp         String?
+  preferredContact ContactChannel?
+  notes        String?
+  isActive     Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  /// Preenchido quando o cadastro foi anonimizado a pedido do titular (decisão 120). Irreversível: os dados originais não são guardados.
+  anonymizedAt DateTime?
+
+  motorcycles   Motorcycle[]
+  quotes        Quote[]
+  sales         Sale[]
+  serviceOrders ServiceOrder[]
+  revisions     Revision[]
+  followUps     FollowUp[]
+  appointments  Appointment[]
+
+  accountsReceivableCustomers AccountsReceivable[] @relation("AccountsReceivable_customerId")
+  employeeAgreementCustomers EmployeeAgreement[] @relation("EmployeeAgreement_customerId")
+  serviceOrderWarrantyCustomers ServiceOrderWarranty[] @relation("ServiceOrderWarranty_customerId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("Customer_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, document])
+  @@index([companyId])
+  @@index([document])
+  @@index([email])
+  @@index([isActive])
+  @@index([mobile])
+  @@index([phone])
+  @@map("customers")
+}
+
+model DamageRecord {
+  id            String       @id @default(uuid())
+  companyId     String
+  branchId      String
+  productId     String
+  product       Product      @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  quantity      Decimal      @db.Decimal(10, 3)
+  reason        DamageReason
+  description   String?
+  photoUrls     String?
+  approvedBy    String
+  recordedBy    String
+  recordedAt    DateTime     @default(now())
+  isReversed    Boolean      @default(false)
+  reversedAt    DateTime?
+  reversedBy    String?
+  reverseReason String?
+  createdAt     DateTime     @default(now())
+
+  supplierReturnItemDamageRecords SupplierReturnItem[] @relation("SupplierReturnItem_damageRecordId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("DamageRecord_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("DamageRecord_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([branchId])
+  @@index([isReversed])
+  @@index([productId])
+  @@index([recordedAt])
+  @@map("damage_records")
+}
+
+/// Partial UNIQUE indexes for "one active session per device" / "per user"
+/// exist only at the database level (WHERE status = 'ACTIVE') and are not
+/// representable as a Prisma @@unique — see migration.sql.
+model DeviceSession {
+  id         String              @id @default(uuid())
+  deviceId   String
+  device     Device              @relation(fields: [deviceId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  userId     String
+  user       User                @relation(fields: [companyId, userId], references: [companyId, id], onDelete: Cascade, onUpdate: Cascade)
+  companyId  String
+  branchId   String?
+  status     DeviceSessionStatus @default(ACTIVE)
+  startedAt  DateTime            @default(now())
+  endedAt    DateTime?
+  endedBy    String?
+  endReason  String?
+  ipAddress  String?
+
+  company Company @relation("DeviceSession_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("DeviceSession_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId])
+  @@index([deviceId])
+  @@index([status])
+  @@index([userId])
+  @@map("device_sessions")
+}
+
+model Device {
+  id               String       @id @default(uuid())
+  /// Nulo SÓ enquanto o equipamento está aguardando autorização (enrolamento sem empresa): quem o vincula a uma licença (e,
+  /// portanto, a uma empresa) e a uma filial é o administrador, ao autorizar. Um equipamento ACTIVE sempre tem licença (CHECK).
+  licenseId        String?
+  license          License?     @relation(fields: [licenseId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  /// Filial de atendimento definida na autorização (o equipamento não escolhe filial). Escalar simples, sem FK, como as demais.
+  branchId         String?
+  /// SHA-256 da chave do equipamento (entregue UMA vez no enrolamento e guardada no cofre do aplicativo). Nulo nos equipamentos
+  /// anteriores ao enrolamento (identidade só por id/MAC: legado, a reenrolar).
+  secretHash       String?
+  /// Código curto que o administrador confere com a tela do equipamento ao autorizar.
+  enrollmentCode   String?      @unique
+  deviceName       String
+  deviceType       DeviceType
+  status           DeviceStatus @default(PENDING)
+  macAddress       String?
+  ipAddress        String?
+  lastSeenAt       DateTime?
+  activatedBy      String?
+  activatedAt      DateTime?
+  revokedBy        String?
+  revokedAt        DateTime?
+  revocationReason String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  activations     Activation[]
+  deviceSessions  DeviceSession[]
+
+  @@index([lastSeenAt])
+  @@index([licenseId])
+  @@index([status])
+  @@map("devices")
+}
+
+/// roleId has no FK to Role (verified against the DDL) — plain scalar.
+model DiscountRule {
+  id               String       @id @default(uuid())
+  companyId        String
+  name             String
+  description      String?
+  userType         UserType?
+  roleId           String?
+  discountType     DiscountType
+  maxDiscount      Decimal      @db.Decimal(5, 2)
+  requiresApproval Boolean      @default(false)
+  isActive         Boolean      @default(true)
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  company Company @relation("DiscountRule_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId])
+  @@index([roleId])
+  @@index([userType])
+  @@map("discount_rules")
+}
+
+model FiscalConfig {
+  id                   String   @id @default(uuid())
+  companyId            String
+  branchId             String
+  nfceEnabled          Boolean  @default(false)
+  nfceSeriesNumber     Int      @default(1)
+  nfceNextNumber       Int      @default(1)
+  nfeEnabled           Boolean  @default(false)
+  nfeSeriesNumber      Int      @default(1)
+  nfeNextNumber        Int      @default(1)
+  certificatePath      String?
+  certificatePassword  String?
+  cscId                String?
+  cscToken             String?
+  environment          String   @default("HOMOLOGACAO")
+  cancelTimeLimit      Int      @default(24)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  company Company @relation("FiscalConfig_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("FiscalConfig_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, branchId])
+  @@index([branchId])
+  @@index([companyId])
+  @@map("fiscal_configs")
+}
+
+/// saleId/serviceOrderId are plain scalars — no FK.
+model FiscalDocument {
+  id                    String                @id @default(uuid())
+  companyId             String
+  branchId              String
+  documentType          FiscalDocumentType
+  status                FiscalDocumentStatus  @default(DRAFT)
+  series                String
+  number                Int
+  accessKey             String?               @unique
+  authorizationProtocol String?
+  saleId                String?
+  serviceOrderId        String?
+  totalAmount           Decimal               @db.Decimal(10, 2)
+  xmlUrl                String?
+  pdfUrl                String?
+  qrCode                String?
+  issuedAt              DateTime?
+  authorizedAt          DateTime?
+  cancelledAt           DateTime?
+  cancelReason          String?
+  rejectionReason       String?
+  createdAt             DateTime              @default(now())
+  updatedAt             DateTime              @updatedAt
+
+  sale Sale? @relation("FiscalDocument_saleId", fields: [companyId, saleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder ServiceOrder? @relation("FiscalDocument_serviceOrderId", fields: [companyId, serviceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("FiscalDocument_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("FiscalDocument_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, branchId, documentType, series, number])
+  @@index([branchId])
+  @@index([companyId])
+  @@index([issuedAt])
+  @@index([saleId])
+  @@index([serviceOrderId])
+  @@index([status])
+  @@map("fiscal_documents")
+}
+
+model IdempotencyKey {
+  id             String            @id @default(uuid())
+  key            String
+  companyId      String
+  userId         String?
+  endpoint       String
+  requestHash    String
+  status         IdempotencyStatus @default(PENDING)
+  responseStatus Int?
+  responseBody   Json?
+  createdAt      DateTime          @default(now())
+  completedAt    DateTime?
+  expiresAt      DateTime
+
+  @@unique([companyId, endpoint, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+model InstallmentPolicy {
+  id                       String        @id @default(uuid())
+  companyId                String
+  company                  Company       @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  branchId                 String?
+  paymentMethod            PaymentMethod
+  maxInstallments          Int           @default(1)
+  interestFreeInstallments Int           @default(1)
+  isActive                 Boolean       @default(true)
+  createdAt                DateTime      @default(now())
+  updatedAt                DateTime      @updatedAt
+
+  branch Branch? @relation("InstallmentPolicy_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, branchId, paymentMethod])
+  @@index([companyId])
+  @@map("installment_policies")
+}
+
+/// ACHADO DE AUDITORIA DE INTEGRAÇÃO: nada impedia dois inventários
+/// IN_PROGRESS simultâneos na mesma filial — cada um capturaria um
+/// `systemQuantity` desatualizado e, no fechamento, o segundo sobrescreveria
+/// silenciosamente a correção do primeiro. Mesmo padrão já usado em
+/// CashRegister (ver comentário lá): uma UNIQUE parcial no banco, que o
+/// Prisma Schema não consegue expressar (sem suporte a `@@unique` com
+/// WHERE) — ver migration `add_inventory_one_in_progress_per_branch`.
+model Inventory {
+  id              String          @id @default(uuid())
+  companyId       String
+  branchId        String
+  inventoryNumber Int
+  status          InventoryStatus @default(DRAFT)
+  startedBy       String
+  startedAt       DateTime        @default(now())
+  completedAt     DateTime?
+  notes           String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  counts InventoryCount[]
+
+  company Company @relation("Inventory_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("Inventory_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([branchId, inventoryNumber])
+  @@index([branchId])
+  @@index([companyId])
+  @@index([startedAt])
+  @@index([status])
+  @@map("inventories")
+}
+
+model InventoryCount {
+  id              String    @id @default(uuid())
+  inventoryId     String
+  inventory       Inventory @relation(fields: [inventoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  productId       String
+  product         Product   @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  systemQuantity  Decimal   @db.Decimal(10, 3)
+  countedQuantity Decimal   @db.Decimal(10, 3)
+  difference      Decimal   @db.Decimal(10, 3)
+  countedBy       String
+  countedAt       DateTime
+  notes           String?
+
+  @@unique([inventoryId, productId])
+  @@index([inventoryId])
+  @@index([productId])
+  @@map("inventory_counts")
+}
+
+/// companyId is a plain scalar — no FK.
+model Invoice {
+  id              String        @id @default(uuid())
+  companyId       String
+  supplierId      String
+  supplier        Supplier      @relation(fields: [companyId, supplierId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  purchaseOrderId String?
+  purchaseOrder   PurchaseOrder? @relation(fields: [companyId, purchaseOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  invoiceNumber   String
+  series          String
+  accessKey       String        @unique
+  issueDate       DateTime
+  totalAmount     Decimal       @db.Decimal(10, 2)
+  xmlUrl          String?
+  isReceived      Boolean       @default(false)
+  receivedAt      DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  company Company @relation("Invoice_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, supplierId, invoiceNumber, series])
+  @@index([companyId])
+  @@index([issueDate])
+  @@index([purchaseOrderId])
+  @@index([supplierId])
+  @@map("invoices")
+}
+
+model License {
+  id           String        @id @default(uuid())
+  companyId    String
+  company      Company       @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  licenseType  LicenseType
+  status       LicenseStatus @default(PENDING_APPROVAL)
+  maxDevices   Int           @default(1)
+  maxUsers     Int           @default(10)
+  maxBranches  Int           @default(1)
+  startDate    DateTime?
+  expiryDate   DateTime?
+  approvedBy   String?
+  approvedAt   DateTime?
+  notes        String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  activations Activation[]
+  devices     Device[]
+
+  @@index([companyId])
+  @@index([companyId, status])
+  @@index([expiryDate])
+  @@index([status, expiryDate])
+  @@index([status])
+  @@map("licenses")
+}
+
+/// companyId/mechanicId are plain scalars — no FK.
+model MechanicCommission {
+  id                String       @id @default(uuid())
+  companyId         String
+  serviceOrderId    String
+  serviceOrder      ServiceOrder @relation(fields: [companyId, serviceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  mechanicId        String
+  ruleSnapshot      Json
+  baseAmount        Decimal      @db.Decimal(10, 2)
+  percentage        Decimal      @db.Decimal(5, 2)
+  commissionAmount  Decimal      @db.Decimal(10, 2)
+  isPaid            Boolean      @default(false)
+  paidAt            DateTime?
+  createdAt         DateTime     @default(now())
+
+  company Company @relation("MechanicCommission_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId])
+  @@index([isPaid])
+  @@index([mechanicId])
+  @@index([serviceOrderId])
+  @@map("mechanic_commissions")
+}
+
+/// companyId is a plain scalar — no FK.
+model Motorcycle {
+  id               String      @id @default(uuid())
+  companyId        String
+  customerId       String
+  customer         Customer    @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  licensePlate     String?
+  chassisNumber    String?
+  brand            String
+  model            String
+  year             Int?
+  color            String?
+  engineNumber     String?
+  kilometerReading Decimal     @db.Decimal(10, 1)
+  isActive         Boolean     @default(true)
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  vehicleType      VehicleType @default(MOTORCYCLE)
+
+  quotes                 Quote[]
+  serviceOrders           ServiceOrder[]
+  vehicleEntryChecklists  VehicleEntryChecklist[]
+  revisions               Revision[]
+  followUps               FollowUp[]
+  appointments            Appointment[]
+
+  serviceOrderWarrantyMotorcycles ServiceOrderWarranty[] @relation("ServiceOrderWarranty_motorcycleId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("Motorcycle_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, licensePlate])
+  @@index([customerId])
+  @@index([isActive])
+  @@index([licensePlate])
+  @@index([vehicleType])
+  @@map("motorcycles")
+}
+
+model Partner {
+  id                String              @id @default(uuid())
+  companyId         String
+  company           Company             @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  branchId          String?
+  name              String
+  description       String?
+  discountType      PartnerDiscountType @default(PERCENTAGE)
+  discountValue     Decimal             @db.Decimal(10, 2)
+  maxDiscountAmount Decimal?            @db.Decimal(10, 2)
+  stackable         Boolean             @default(false)
+  requiresApproval  Boolean             @default(false)
+  validFrom         DateTime?
+  validUntil        DateTime?
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  sales Sale[]
+
+  branch Branch? @relation("Partner_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, name])
+  @@index([branchId])
+  @@index([companyId])
+  @@map("partners")
+}
+
+/// companyId is a plain scalar — no FK.
+model Payment {
+  id                String        @id @default(uuid())
+  companyId         String
+  saleId            String
+  sale              Sale          @relation(fields: [companyId, saleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  paymentMethod     PaymentMethod
+  status            PaymentStatus @default(PENDING)
+  amount            Decimal       @db.Decimal(10, 2)
+  /// Dinheiro: valor entregue pelo cliente (`amount` é o que foi aplicado à venda; a diferença é o troco).
+  receivedAmount    Decimal?      @db.Decimal(10, 2)
+  changeAmount      Decimal       @default(0) @db.Decimal(10, 2)
+  /// Dinheiro com controle de cédulas ligado: [{ value, quantity }] que somam `receivedAmount`.
+  cashBreakdown     Json?
+  /// Provedor externo que processou (terminal/PSP registrado); nulo = dinheiro/MANUAL. Usado na reconciliação.
+  provider          String?
+  /// Convênio usado (forma de pagamento EMPLOYEE_AGREEMENT / COMPANY_AGREEMENT)
+  agreementCompanyId  String?
+  employeeAgreementId String?
+  installments      Int           @default(1)
+  transactionId     String?       @unique
+  authorizationCode String?
+  cardBrand         String?
+  cardLastDigits    String?
+  nsuHost           String?
+  nsuTef            String?
+  paidAt            DateTime?
+  cancelledAt       DateTime?
+  refundedAt        DateTime?
+  notes             String?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  exceptions        PaymentException[]
+
+  employeeAgreementChargePayments EmployeeAgreementCharge[] @relation("EmployeeAgreementCharge_paymentId")
+  agreementCompany AgreementCompany? @relation("Payment_agreementCompanyId", fields: [companyId, agreementCompanyId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  employeeAgreement EmployeeAgreement? @relation("Payment_employeeAgreementId", fields: [companyId, employeeAgreementId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  tefPaymentPayments TefPayment[] @relation("TefPayment_paymentId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("Payment_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([paidAt])
+  @@index([paymentMethod])
+  @@index([saleId])
+  @@index([saleId, status])
+  @@index([status])
+  @@index([employeeAgreementId])
+  @@index([agreementCompanyId])
+  @@map("payments")
+}
+
+/// Fato do provedor em conflito com a venda (ex.: aprovado depois do cancelamento/devolução). O pagamento guarda a
+/// verdade; a exceção fica aberta até ser tratada. Tratamento comercial: [DECISÃO NECESSÁRIA] (docs/CORTEX/BUSINESS_RULES.md).
+/// Máximo uma aberta por pagamento (índice parcial `payment_exceptions_one_open`, na migração).
+model PaymentException {
+  id             String    @id @default(uuid())
+  companyId      String
+  branchId       String?
+  paymentId      String
+  payment        Payment   @relation(fields: [companyId, paymentId], references: [companyId, id], onDelete: Restrict)
+  saleId         String
+  type           String
+  saleStatus     String
+  amount         Decimal   @db.Decimal(10, 2)
+  provider       String?
+  providerStatus String
+  detectedAt     DateTime  @default(now())
+  resolvedAt     DateTime?
+  resolution     String?
+  resolvedBy     String?
+  notes          String?
+
+  sale Sale @relation("PaymentException_saleId", fields: [companyId, saleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("PaymentException_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("PaymentException_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId, resolvedAt])
+  @@index([saleId])
+  @@map("payment_exceptions")
+}
+
+model Permission {
+  id          String          @id @default(uuid())
+  companyId   String?
+  company     Company?        @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  name        String
+  description String?
+  scope       PermissionScope @default(BRANCH)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  rolePermissions RolePermission[]
+
+  @@unique([companyId, name])
+  @@map("permissions")
+}
+
+/// companyId/branchId are plain scalars — no FK.
+/// Vários códigos de barras por produto (2026-10-14). (companyId, code) é único: um código identifica UM produto na empresa.
+/// `products.barcode` segue como código principal (compatibilidade) e é sincronizado pela aplicação.
+model ProductBarcode {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  productId String
+  /// FK COMPOSTA (companyId, productId) → products(companyId, id): o produto tem que ser da MESMA empresa da linha. Uma FK só em `productId`
+  /// não bastava — a checagem de FK do PostgreSQL não passa pela RLS e a policy da linha filha só olha o companyId da própria linha, então a
+  /// empresa A conseguia gravar `(companyId = A, productId = produto da B)`. Migração 20261014160000.
+  product   Product  @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  code      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@index([productId])
+  @@index([companyId])
+  @@map("product_barcodes")
+}
+
+model Product {
+  id                 String      @id @default(uuid())
+  companyId          String
+  branchId           String?
+  categoryId         String?
+  category           Category?   @relation(fields: [companyId, categoryId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  sku                String
+  barcode            String?
+  name               String
+  description        String?
+  brand              String?
+  application        String?
+  location           String?
+  productType        ProductType @default(PRODUCT)
+  costPrice          Decimal     @db.Decimal(10, 2)
+  salePrice          Decimal     @db.Decimal(10, 2)
+  minStock           Int         @default(0)
+  maxStock           Int?
+  unit               String      @default("UN")
+  isActive           Boolean     @default(true)
+  allowNegativeStock Boolean     @default(false)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  comboItems   ComboItem[]          @relation("ComboItemCombo")
+  comboItemsAsProduct ComboItem[]          @relation("ComboItemProduct")
+  damageRecords       DamageRecord[]
+  inventoryCounts     InventoryCount[]
+  purchaseOrderItems  PurchaseOrderItem[]
+  saleItems           SaleItem[]
+  serviceOrderItems   ServiceOrderItem[]
+  stockMovements      StockMovement[]
+  channelLinks        ChannelProductLink[]
+  externalOrderItems  ExternalOrderItem[]
+  stockReservations   StockReservation[]
+  supplierReturnItems SupplierReturnItem[]
+  transferItems       TransferItem[]
+  barcodes            ProductBarcode[]
+  image               ProductImage?
+
+  company Company @relation("Product_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("Product_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, sku])
+  /// Redundante com a PK (`id` já é único), mas é o ALVO exigido pelas FKs compostas (companyId, productId) de `product_barcodes` e
+  /// `product_images`, que impedem uma linha da empresa A de apontar para produto da empresa B. Migração 20261014160000.
+  @@unique([companyId, id])
+  @@index([barcode])
+  @@index([branchId])
+  @@index([categoryId])
+  @@index([companyId, isActive])
+  @@index([isActive])
+  @@index([sku])
+  @@map("products")
+}
+
+model PurchaseOrderItem {
+  id               String        @id @default(uuid())
+  purchaseOrderId  String
+  purchaseOrder    PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  productId        String
+  product          Product       @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  quantity         Decimal       @db.Decimal(10, 3)
+  receivedQuantity Decimal       @default(0) @db.Decimal(10, 3)
+  unitCost         Decimal       @db.Decimal(10, 2)
+  totalCost        Decimal       @db.Decimal(10, 2)
+
+  @@index([productId])
+  @@index([purchaseOrderId])
+  @@map("purchase_order_items")
+}
+
+/// companyId/branchId are plain scalars — no FK.
+model PurchaseOrder {
+  id                String              @id @default(uuid())
+  companyId         String
+  branchId          String
+  poNumber          Int
+  supplierId        String
+  supplier          Supplier            @relation(fields: [companyId, supplierId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  status            PurchaseOrderStatus @default(DRAFT)
+  orderDate         DateTime            @default(now())
+  expectedDelivery  DateTime?
+  receivedDate      DateTime?
+  subtotal          Decimal             @db.Decimal(10, 2)
+  taxAmount         Decimal             @default(0) @db.Decimal(10, 2)
+  totalAmount       Decimal             @db.Decimal(10, 2)
+  notes             String?
+  approvedBy        String?
+  approvedAt        DateTime?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  invoices           Invoice[]
+  items PurchaseOrderItem[]
+
+  supplierReturnPurchaseOrders SupplierReturn[] @relation("SupplierReturn_purchaseOrderId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("PurchaseOrder_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("PurchaseOrder_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, branchId, poNumber])
+  @@index([branchId])
+  @@index([companyId])
+  @@index([orderDate])
+  @@index([status])
+  @@index([supplierId])
+  @@map("purchase_orders")
+}
+
+/// productId is a plain scalar — no FK (unlike most other *_items tables).
+model QuoteItem {
+  id              String               @id @default(uuid())
+  quoteVersionId  String
+  quoteVersion    QuoteVersion         @relation(fields: [quoteVersionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  itemType        ServiceOrderItemType
+  productId       String?
+  description     String
+  quantity        Decimal              @db.Decimal(10, 3)
+  unitPrice       Decimal              @db.Decimal(10, 2)
+  totalPrice      Decimal              @db.Decimal(10, 2)
+
+  @@index([quoteVersionId])
+  @@map("quote_items")
+}
+
+/// createdBy is a plain scalar — no FK.
+model QuoteVersion {
+  id             String    @id @default(uuid())
+  quoteId        String
+  quote          Quote     @relation(fields: [quoteId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  versionNumber  Int
+  laborTotal     Decimal   @default(0) @db.Decimal(10, 2)
+  partsTotal     Decimal   @default(0) @db.Decimal(10, 2)
+  discountAmount Decimal   @default(0) @db.Decimal(10, 2)
+  totalAmount    Decimal   @default(0) @db.Decimal(10, 2)
+  sentAt         DateTime?
+  isApproved     Boolean   @default(false)
+  approvedAt     DateTime?
+  decidedBy      String?
+  decisionNotes  String?
+  createdBy      String
+  createdAt      DateTime  @default(now())
+
+  items   QuoteItem[]
+  serviceOrder ServiceOrder?
+
+  @@unique([quoteId, versionNumber])
+  @@index([quoteId])
+  @@map("quote_versions")
+}
+
+/// companyId/branchId/createdBy are plain scalars — no FK.
+model Quote {
+  id          String      @id @default(uuid())
+  companyId   String
+  branchId    String
+  customerId  String
+  customer    Customer    @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycleId String
+  motorcycle  Motorcycle  @relation(fields: [companyId, motorcycleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  quoteNumber Int
+  status      QuoteStatus @default(DRAFT)
+  validUntil  DateTime?
+  notes       String?
+  closedAt    DateTime?
+  closedBy    String?
+  closeReason String?
+  createdBy   String
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  events   QuoteEvent[]
+  versions QuoteVersion[]
+
+  discountEventQuotes DiscountEvent[] @relation("DiscountEvent_quoteId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("Quote_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("Quote_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, quoteNumber])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([motorcycleId])
+  @@index([status])
+  @@map("quotes")
+}
+
+/// companyId is a plain scalar — no FK.
+/// Sessão de login (refresh token). O banco guarda SÓ o hash (SHA-256 hex) do token — nunca o token (migração 20261014170000).
+/// `companyId` = empresa do usuário (nulo = conta de plataforma): é ele que faz a RLS isolar a sessão por empresa, e a FK composta
+/// (companyId, userId) → users(companyId, id) impede gravar a sessão de um usuário numa empresa que não é a dele.
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  companyId String?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  userInCompany User? @relation("RefreshTokenUserCompany", fields: [companyId, userId], references: [companyId, id], onDelete: Cascade, onUpdate: Cascade)
+  tokenHash String   @unique
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+  /// Sessão de equipamento a que esta sessão de login está presa: revogar/bloquear o equipamento ou encerrar a sessão invalida
+  /// também a renovação. Nulo no login sem equipamento (Admin Web / Super Admin).
+  deviceSessionId String?
+
+  @@index([deviceSessionId])
+  @@index([companyId, userId])
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+/// companyId/branchId/userId are plain scalars — no FK.
+model RequestLog {
+  id         String   @id @default(uuid())
+  requestId  String   @unique
+  method     String
+  route      String
+  statusCode Int
+  durationMs Int
+  companyId  String?
+  branchId   String?
+  userId     String?
+  device     String?
+  createdAt  DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([createdAt])
+  @@index([route, createdAt])
+  @@index([statusCode, createdAt])
+  @@map("request_logs")
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  roleId       String
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  companyId   String?
+  company     Company? @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  rolePermissions RolePermission[]
+  userRoles       UserRole[]
+
+  @@unique([companyId, name])
+  @@map("roles")
+}
+
+model SaleItem {
+  id                String   @id @default(uuid())
+  saleId            String
+  sale              Sale     @relation(fields: [saleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  productId         String
+  product           Product  @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  productName       String
+  productSku        String
+  quantity          Decimal  @db.Decimal(10, 3)
+  unitPrice         Decimal  @db.Decimal(10, 2)
+  discountAmount    Decimal  @default(0) @db.Decimal(10, 2)
+  discountPercent   Decimal  @default(0) @db.Decimal(5, 2)
+  totalPrice        Decimal  @db.Decimal(10, 2)
+  notes             String?
+  returnedQuantity  Decimal  @default(0) @db.Decimal(10, 3)
+
+  @@index([productId])
+  @@index([saleId])
+  @@map("sale_items")
+}
+
+/// companyId/branchId/cashRegisterId are plain scalars — no FK
+/// (cashRegisterId notably has no FK despite the obvious relationship).
+model Sale {
+  id                    String     @id @default(uuid())
+  companyId             String
+  branchId              String
+  saleNumber            Int
+  customerId            String?
+  customer              Customer?  @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// Operador responsável. Nulo SÓ em venda de canal (`channelId` preenchido): o CHECK `sales_physical_origin_check` do banco exige
+  /// usuário e caixa em toda venda física. Venda de canal não passa pelo caixa do balcão e não tem vendedor presumido.
+  userId                String?
+  user                  User?      @relation(fields: [companyId, userId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  cashRegisterId        String?
+  status                SaleStatus @default(PENDING)
+  subtotal              Decimal    @db.Decimal(10, 2)
+  discountAmount        Decimal    @default(0) @db.Decimal(10, 2)
+  discountPercent       Decimal    @default(0) @db.Decimal(5, 2)
+  totalAmount           Decimal    @db.Decimal(10, 2)
+  paidAmount            Decimal    @default(0) @db.Decimal(10, 2)
+  changeAmount          Decimal    @default(0) @db.Decimal(10, 2)
+  notes                 String?
+  cancelReason          String?
+  cancelledAt           DateTime?
+  cancelledBy           String?
+  saleDate              DateTime   @default(now())
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
+  partnerDiscountAmount Decimal    @default(0) @db.Decimal(10, 2)
+  partnerId             String?
+  partner               Partner?   @relation(fields: [partnerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  /// Origem da venda. Nulo = loja física (toda venda anterior aos canais e toda venda do PDV).
+  channelId             String?
+  channel               SalesChannel? @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// Pedido externo que originou esta venda (um pedido gera no máximo uma venda: `external_orders.saleId` é único).
+  externalOrder         ExternalOrder?
+  fulfillment           Fulfillment?
+
+  payments  Payment[]
+  items SaleItem[]
+
+  discountEventSales DiscountEvent[] @relation("DiscountEvent_saleId")
+  employeeAgreementChargeSales EmployeeAgreementCharge[] @relation("EmployeeAgreementCharge_saleId")
+  fiscalDocumentSales FiscalDocument[] @relation("FiscalDocument_saleId")
+  paymentExceptionSales PaymentException[] @relation("PaymentException_saleId")
+  cashRegister CashRegister? @relation("Sale_cashRegisterId", fields: [companyId, cashRegisterId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  tefPaymentSales TefPayment[] @relation("TefPayment_saleId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("Sale_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("Sale_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, branchId, saleNumber])
+  @@index([branchId])
+  @@index([branchId, saleDate])
+  @@index([cashRegisterId])
+  @@index([companyId])
+  @@index([companyId, saleDate])
+  @@index([companyId, status])
+  @@index([customerId])
+  @@index([partnerId])
+  @@index([saleDate])
+  @@index([status])
+  @@index([userId])
+  @@index([channelId])
+  @@map("sales")
+}
+
+model ServiceOrderItem {
+  id             String               @id @default(uuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder         @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  itemType       ServiceOrderItemType
+  productId      String?
+  product        Product?             @relation(fields: [productId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  description    String
+  quantity       Decimal              @db.Decimal(10, 3)
+  unitPrice      Decimal              @db.Decimal(10, 2)
+  totalPrice     Decimal              @db.Decimal(10, 2)
+  isCompleted    Boolean              @default(false)
+  completedAt    DateTime?
+
+  @@index([productId])
+  @@index([serviceOrderId])
+  @@map("service_order_items")
+}
+
+/// changedBy is a plain scalar — no FK.
+model ServiceOrderStatusHistory {
+  id             String              @id @default(uuid())
+  serviceOrderId String
+  serviceOrder   ServiceOrder        @relation(fields: [serviceOrderId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  fromStatus     ServiceOrderStatus?
+  toStatus       ServiceOrderStatus
+  changedBy      String
+  changedAt      DateTime            @default(now())
+  notes          String?
+
+  @@index([changedAt])
+  @@index([serviceOrderId])
+  @@map("service_order_status_history")
+}
+
+/// companyId/branchId are plain scalars — no FK.
+model ServiceOrder {
+  id                   String              @id @default(uuid())
+  companyId            String
+  branchId             String
+  osNumber             Int
+  customerId           String
+  customer             Customer            @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycleId         String
+  motorcycle           Motorcycle          @relation(fields: [companyId, motorcycleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  status               ServiceOrderStatus  @default(ENTRADA)
+  entryDate            DateTime
+  entryKilometer       Decimal             @db.Decimal(10, 1)
+  estimatedDelivery    DateTime?
+  deliveryDate         DateTime?
+  exitKilometer        Decimal?            @db.Decimal(10, 1)
+  fuelLevel            String?
+  visibleDamages       String?
+  personalItems        String?
+  entryNotes           String?
+  diagnosticNotes      String?
+  mechanicId           String?
+  mechanic             User?               @relation("ServiceOrderMechanic", fields: [mechanicId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  mechanicStartedAt    DateTime?
+  mechanicCompletedAt  DateTime?
+  laborTotal           Decimal             @default(0) @db.Decimal(10, 2)
+  partsTotal           Decimal             @default(0) @db.Decimal(10, 2)
+  discountAmount       Decimal             @default(0) @db.Decimal(10, 2)
+  finalTotal           Decimal             @db.Decimal(10, 2)
+  isPaid               Boolean             @default(false)
+  paidAt               DateTime?
+  paymentMethod        PaymentMethod?
+  cancelReason         String?
+  cancelledAt          DateTime?
+  cancelledBy          String?
+  /// Decisão de garantia no encerramento: NONE | GRANTED
+  warrantyDecision     String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  quoteVersionId       String?             @unique
+  quoteVersion         QuoteVersion?       @relation(fields: [quoteVersionId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  warranty                   ServiceOrderWarranty?
+  mechanicCommissions        MechanicCommission[]
+  items           ServiceOrderItem[]
+  statusHistory ServiceOrderStatusHistory[]
+  vehicleEntryChecklist        VehicleEntryChecklist?
+  revisions                    Revision[]
+
+  discountEventServiceOrders DiscountEvent[] @relation("DiscountEvent_serviceOrderId")
+  fiscalDocumentServiceOrders FiscalDocument[] @relation("FiscalDocument_serviceOrderId")
+  tefPaymentServiceOrders TefPayment[] @relation("TefPayment_serviceOrderId")
+  warrantyClaimNewServiceOrders WarrantyClaim[] @relation("WarrantyClaim_newServiceOrderId")
+  warrantyClaimServiceOrders WarrantyClaim[] @relation("WarrantyClaim_serviceOrderId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("ServiceOrder_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("ServiceOrder_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([branchId, osNumber])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([entryDate])
+  @@index([mechanicId])
+  @@index([motorcycleId])
+  @@index([status])
+  @@map("service_orders")
+}
+
+/// companyId/branchId/userId are plain scalars — no FK.
+model StockMovement {
+  id            String       @id @default(uuid())
+  companyId     String
+  branchId      String?
+  productId     String
+  product       Product      @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  movementType  MovementType
+  quantity      Decimal      @db.Decimal(10, 3)
+  unitCost      Decimal?     @db.Decimal(10, 2)
+  totalCost     Decimal?     @db.Decimal(10, 2)
+  referenceType String?
+  referenceId   String?
+  notes         String?
+  /// Quem lançou. Nulo só no movimento de uma venda de canal convertida sem operador (o responsável está nos eventos do canal).
+  userId        String?
+  createdAt     DateTime     @default(now())
+
+  user User? @relation("StockMovement_userId", fields: [companyId, userId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("StockMovement_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("StockMovement_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([branchId])
+  @@index([branchId, productId])
+  @@index([companyId])
+  @@index([createdAt])
+  @@index([movementType])
+  @@index([productId, createdAt])
+  @@index([productId])
+  @@index([referenceType, referenceId])
+  @@index([userId])
+  @@map("stock_movements")
+}
+
+model Supplier {
+  id                String   @id @default(uuid())
+  companyId         String
+  name              String
+  document          String
+  email             String?
+  phone             String?
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  addressComplement String?
+  addressNumber     String?
+  mobile            String?
+  notes             String?
+  tradeName         String?
+
+  invoices       Invoice[]
+  purchaseOrders PurchaseOrder[]
+  supplierReturns SupplierReturn[]
+
+  accountsPayableSuppliers AccountsPayable[] @relation("AccountsPayable_supplierId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("Supplier_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, document])
+  @@index([companyId])
+  @@index([document])
+  @@index([isActive])
+  @@map("suppliers")
+}
+
+/// companyId/branchId/userId are plain scalars — no FK.
+model SystemLog {
+  id           String    @id @default(uuid())
+  level        String
+  category     String
+  service      String
+  event        String
+  message      String
+  requestId    String?
+  companyId    String?
+  branchId     String?
+  userId       String?
+  device       String?
+  durationMs   Int?
+  errorMessage String?
+  stackTrace   String?
+  metadata     Json?
+  createdAt    DateTime  @default(now())
+
+  @@index([category, createdAt])
+  @@index([companyId, createdAt])
+  @@index([createdAt])
+  @@index([level, createdAt])
+  @@index([requestId])
+  @@map("system_logs")
+}
+
+/// Fully scalar — companyId/saleId/serviceOrderId/paymentId carry no FK at
+/// all in the database.
+model TefPayment {
+  id                   String           @id @default(uuid())
+  companyId            String
+  saleId               String?
+  serviceOrderId       String?
+  paymentId            String
+  provider             String
+  transactionId        String
+  amount               Decimal          @db.Decimal(10, 2)
+  status               TEFPaymentStatus @default(PENDING)
+  cardBrand            String?
+  cardLastDigits       String?
+  authorizationCode    String?
+  nsuHost              String?
+  nsuTef               String?
+  requestedAt          DateTime         @default(now())
+  authorizedAt         DateTime?
+  rejectedAt           DateTime?
+  rejectionReason      String?
+  reconciliationStatus String?
+  reconciledAt         DateTime?
+  createdAt            DateTime         @default(now())
+  updatedAt            DateTime         @updatedAt
+
+  payment Payment @relation("TefPayment_paymentId", fields: [companyId, paymentId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  sale Sale? @relation("TefPayment_saleId", fields: [companyId, saleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder ServiceOrder? @relation("TefPayment_serviceOrderId", fields: [companyId, serviceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("TefPayment_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([provider, transactionId])
+  @@index([companyId])
+  @@index([paymentId])
+  @@index([requestedAt])
+  @@index([saleId])
+  @@index([serviceOrderId])
+  @@index([status])
+  @@index([transactionId])
+  @@map("tef_payments")
+}
+
+model TransferItem {
+  id                String    @id @default(uuid())
+  transferId        String
+  transfer          Transfer  @relation(fields: [transferId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  productId         String
+  product           Product   @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  requestedQuantity Decimal   @db.Decimal(10, 3)
+  sentQuantity      Decimal?  @db.Decimal(10, 3)
+  receivedQuantity  Decimal?  @db.Decimal(10, 3)
+  notes             String?
+
+  @@index([productId])
+  @@index([transferId])
+  @@map("transfer_items")
+}
+
+/// companyId/fromBranchId/toBranchId/requestedBy are plain scalars — no FK.
+model Transfer {
+  id             String         @id @default(uuid())
+  companyId      String
+  fromBranchId   String
+  toBranchId     String
+  transferNumber Int
+  status         TransferStatus @default(PENDING)
+  requestedBy    String
+  approvedBy     String?
+  sentBy         String?
+  receivedBy     String?
+  requestedAt    DateTime       @default(now())
+  approvedAt     DateTime?
+  sentAt         DateTime?
+  receivedAt     DateTime?
+  notes          String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  items TransferItem[]
+
+  fromBranch Branch @relation("Transfer_fromBranchId", fields: [companyId, fromBranchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  toBranch Branch @relation("Transfer_toBranchId", fields: [companyId, toBranchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("Transfer_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, transferNumber])
+  @@index([companyId])
+  @@index([fromBranchId])
+  @@index([requestedAt])
+  @@index([status])
+  @@index([toBranchId])
+  @@map("transfers")
+}
+
+/// branchId is a plain scalar — no FK (unlike User.branchId, which does have
+/// one).
+/// Filiais ADICIONAIS autorizadas a um usuário de filial (decisão 153). O conjunto autorizado de quem NÃO é de empresa inteira é
+/// `users.branchId` (principal) + as linhas desta tabela; é calculado no servidor a cada requisição (nunca vem do cliente) e viaja assinado no
+/// contexto da RLS. Só SUPER_ADMIN e COMPANY_ADMIN gravam (RLS); o usuário lê as próprias linhas. Apagar o vínculo revoga o acesso na hora.
+model UserBranch {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation("UserBranch_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  userId    String
+  user      User     @relation("UserBranch_user", fields: [companyId, userId], references: [companyId, id], onDelete: Cascade, onUpdate: Cascade)
+  branchId  String
+  branch    Branch   @relation("UserBranch_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Cascade, onUpdate: Cascade)
+  createdAt DateTime @default(now())
+  /// Quem concedeu o vínculo (id do administrador); a trilha completa fica em audit_logs.
+  createdBy String?
+
+  @@unique([userId, branchId])
+  @@index([companyId, branchId])
+  @@map("user_branches")
+}
+
+model UserRole {
+  id       String  @id @default(uuid())
+  userId   String
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  roleId   String
+  role     Role    @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  branchId String?
+
+  @@unique([userId, roleId, branchId])
+  @@map("user_roles")
+}
+
+model User {
+  id              String    @id @default(uuid())
+  numericId       Int       @unique @default(autoincrement())
+  companyId       String?
+  company         Company?  @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branchId        String?
+  branch          Branch?   @relation(fields: [branchId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  name            String
+  email           String    @unique
+  phone           String?
+  password        String
+  userType        UserType
+  isActive        Boolean   @default(true)
+  emailVerified   Boolean   @default(false)
+  mfaEnabled      Boolean   @default(false)
+  mfaSecret       String?
+  mfaBackupCodes  String[]  @default([])
+  /// Último passo TOTP (30 s) já consumido: o mesmo código não vale duas vezes (decisão 123).
+  mfaLastStep     Int?
+  loginAttempts   Int       @default(0)
+  lockedUntil     DateTime?
+  lastLoginAt     DateTime?
+  lastLoginIp     String?
+  /// Senha TEMPORÁRIA (definida por um administrador): o usuário precisa trocá-la antes de receber sessão (decisão 157).
+  mustChangePassword Boolean @default(false)
+  /// Quando a senha foi trocada pela última vez (pelo próprio usuário ou redefinida por um administrador).
+  passwordChangedAt  DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  activations            Activation[]
+  auditLogs              AuditLog[]
+  deviceSessions         DeviceSession[]
+  refreshTokens          RefreshToken[]
+  refreshTokensInCompany RefreshToken[] @relation("RefreshTokenUserCompany")
+  sales                  Sale[]
+  serviceOrdersAsMechanic ServiceOrder[] @relation("ServiceOrderMechanic")
+  userRoles              UserRole[]
+  /// Filiais ADICIONAIS autorizadas (decisão 153); a principal continua em users.branchId.
+  userBranchesInUser UserBranch[] @relation("UserBranch_user")
+
+  /// Alvo das FKs compostas (companyId, userId) — ver RefreshToken; redundante com a PK.
+  cashRegisterUsers CashRegister[] @relation("CashRegister_userId")
+  employeeAgreementUsers EmployeeAgreement[] @relation("EmployeeAgreement_userId")
+  importBatchUsers ImportBatch[] @relation("ImportBatch_userId")
+  stockMovementUsers StockMovement[] @relation("StockMovement_userId")
+  supplierReturnEventUsers SupplierReturnEvent[] @relation("SupplierReturnEvent_userId")
+  @@unique([companyId, id])
+  @@index([branchId])
+  @@index([companyId, isActive])
+  @@index([isActive])
+  @@map("users")
+}
+
+model VehicleEntryChecklistItem {
+  id          String               @id @default(uuid())
+  checklistId String
+  checklist   VehicleEntryChecklist @relation(fields: [checklistId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  itemName    String
+  status      ChecklistItemStatus  @default(NOT_CHECKED)
+  description String?
+  photoUrl    String?
+
+  @@index([checklistId])
+  @@map("vehicle_entry_checklist_items")
+}
+
+/// companyId/checkedBy are plain scalars — no FK. serviceOrderId is unique,
+/// making this a 1:1 with ServiceOrder.
+model VehicleEntryChecklist {
+  id             String       @id @default(uuid())
+  companyId      String
+  serviceOrderId String       @unique
+  serviceOrder   ServiceOrder @relation(fields: [companyId, serviceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycleId   String
+  motorcycle     Motorcycle   @relation(fields: [companyId, motorcycleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  checkedBy      String
+  checkedAt      DateTime     @default(now())
+  createdAt      DateTime     @default(now())
+
+  items VehicleEntryChecklistItem[]
+
+  /// Exigida pelo Prisma na relação 1:1 pela FK composta; redundante com o @unique da coluna (migração 20261014180000_composite_company_fks).
+  company Company @relation("VehicleEntryChecklist_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, serviceOrderId])
+  @@index([companyId])
+  @@index([motorcycleId])
+  @@map("vehicle_entry_checklists")
+}
+
+/// companyId/branchId/serviceOrderId/recordedBy plain scalars (mesmo padrão
+/// do resto do schema — isolamento via RLS, não FK). Imutável por design:
+/// histórico do que já foi feito num veículo — o service nunca expõe
+/// update/delete, só create. `nextDueDate`/`nextDueKilometer` são
+/// calculados no momento da criação (performedAt + intervalMonths, e
+/// kilometerAtService + intervalKilometers quando informado) e persistidos
+/// — não recalculados em leitura — para que o histórico continue
+/// reproduzindo exatamente o que foi comunicado ao cliente na época, mesmo
+/// se a política de intervalo padrão da empresa mudar depois.
+model Revision {
+  id                 String        @id @default(uuid())
+  companyId          String
+  branchId           String?
+  customerId         String
+  customer           Customer      @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycleId       String
+  motorcycle         Motorcycle    @relation(fields: [companyId, motorcycleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrderId     String?
+  serviceOrder       ServiceOrder? @relation(fields: [companyId, serviceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  performedAt        DateTime
+  kilometerAtService Decimal       @db.Decimal(10, 1)
+  servicesPerformed  String
+  partsReplaced      String?
+  /// recomendação ao cliente até a próxima revisão
+  recommendations    String?
+  notes              String?
+  intervalMonths     Int           @default(3)
+  intervalKilometers Int?
+  nextDueDate        DateTime
+  nextDueKilometer   Decimal?      @db.Decimal(10, 1)
+  recordedBy         String
+  createdAt          DateTime      @default(now())
+
+  followUps FollowUp[]
+
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("Revision_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("Revision_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([motorcycleId])
+  @@index([nextDueDate])
+  @@map("revisions")
+}
+
+/// companyId/branchId/createdBy plain scalars. `status` é exatamente os 3
+/// baldes do dashboard de pós-venda — de propósito NÃO existe um status
+/// "Aguardando contato": tentativas de contato são eventos em
+/// FollowUpEvent (histórico), nunca um status próprio do FollowUp.
+model FollowUp {
+  id           String         @id @default(uuid())
+  companyId    String
+  branchId     String?
+  revisionId   String?
+  revision     Revision?      @relation(fields: [companyId, revisionId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  customerId   String
+  customer     Customer       @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycleId String
+  motorcycle   Motorcycle     @relation(fields: [companyId, motorcycleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  dueDate      DateTime
+  status       FollowUpStatus @default(PENDING)
+  notes        String?
+  createdBy    String
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  events      FollowUpEvent[]
+  appointment Appointment?
+
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("FollowUp_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("FollowUp_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([motorcycleId])
+  @@index([status])
+  @@index([dueDate])
+  @@map("follow_ups")
+}
+
+/// Sem companyId próprio — isolamento via followUpId, mesmo padrão de
+/// ServiceOrderStatusHistory (RLS junta com a tabela pai, ver
+/// migration.sql). Imutável: histórico de contato e decisões do cliente,
+/// nunca atualizado ou apagado.
+model FollowUpEvent {
+  id          String            @id @default(uuid())
+  followUpId  String
+  followUp    FollowUp          @relation(fields: [followUpId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  eventType   FollowUpEventType
+  channel     ContactChannel?
+  message     String?
+  performedBy String
+  createdAt   DateTime          @default(now())
+
+  @@index([followUpId])
+  @@index([createdAt])
+  @@map("follow_up_events")
+}
+
+/// companyId/branchId/proposedBy plain scalars. `customerConfirmed` +
+/// `confirmedAt` existem separados de `status` de propósito: a equipe pode
+/// PROPOR um horário (status=PROPOSED) sem que isso signifique confirmação
+/// — só version um evento CONFIRMED (via customer) muda
+/// `customerConfirmed` para true. Nunca gravar confirmação sem essa
+/// distinção — é a regra central deste domínio.
+model Appointment {
+  id                String            @id @default(uuid())
+  companyId         String
+  branchId          String?
+  followUpId        String?           @unique
+  followUp          FollowUp?         @relation(fields: [companyId, followUpId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  customerId        String
+  customer          Customer          @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycleId      String?
+  motorcycle        Motorcycle?       @relation(fields: [companyId, motorcycleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  scheduledAt       DateTime
+  status            AppointmentStatus @default(PROPOSED)
+  proposedBy        String
+  customerConfirmed Boolean           @default(false)
+  confirmedAt       DateTime?
+  /// canal em que o cliente/responsável confirmou (obrigatório ao confirmar desde 2026-09-26)
+  confirmationChannel ContactChannel?
+  /// quem confirmou: o cliente ou o responsável pelo veículo (não o funcionário que registrou)
+  confirmedByName   String?
+  /// Concluído sem a confirmação do cliente — só com autorização de responsável interno (≠ solicitante)
+  completedWithoutConfirmation Boolean @default(false)
+  completionAuthorizedBy       String?
+  completionReason             String?
+  /// Duração prevista (minutos); vazio = política agenda.defaultDurationMinutes ou um horário
+  durationMinutes              Int?
+  /// Mecânico previsto (opcional) — conflito e indisponibilidade conferidos por ele
+  mechanicId                   String?
+  notes             String?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  events AppointmentEvent[]
+
+  /// Exigida pelo Prisma na relação 1:1 pela FK composta; redundante com o @unique da coluna (migração 20261014180000_composite_company_fks).
+  company Company @relation("Appointment_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("Appointment_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, followUpId])
+  @@index([companyId])
+  @@index([branchId])
+  @@index([customerId])
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([mechanicId])
+  @@map("appointments")
+}
+
+/// Sem companyId próprio — isolamento via appointmentId, mesmo padrão de
+/// FollowUpEvent. Imutável.
+model AppointmentEvent {
+  id                  String               @id @default(uuid())
+  appointmentId       String
+  appointment         Appointment          @relation(fields: [appointmentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  eventType           AppointmentEventType
+  previousScheduledAt DateTime?
+  newScheduledAt      DateTime?
+  reason              String?
+  performedBy         String
+  createdAt           DateTime             @default(now())
+
+  @@index([appointmentId])
+  @@index([createdAt])
+  @@map("appointment_events")
+}
+
+// ============================================
+// POLÍTICAS POR EMPRESA/FILIAL (2026-09-27)
+// ============================================
+
+/// Valor de uma política: linha da empresa (branchId nulo) é o padrão; linha da filial é override (só nas chaves que o
+/// catálogo permite). Catálogo, validação e resolução em apps/api/src/services/policy.service.ts.
+model PolicySetting {
+  id        String   @id @default(uuid())
+  companyId String
+  branchId  String?
+  key       String
+  value     Json
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation("PolicySetting_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("PolicySetting_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId])
+  @@map("policy_settings")
+}
+
+/// Histórico de toda alteração de política (valor anterior, novo, motivo, quem, quando).
+model PolicyChange {
+  id        String   @id @default(uuid())
+  companyId String
+  branchId  String?
+  key       String
+  oldValue  Json?
+  newValue  Json?
+  reason    String
+  changedBy String
+  createdAt DateTime @default(now())
+
+  company Company @relation("PolicyChange_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("PolicyChange_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId, createdAt])
+  @@map("policy_changes")
+}
+
+/// Horário de funcionamento por dia da semana (0 = domingo). Linhas da filial substituem as da empresa.
+model BusinessHours {
+  id         String   @id @default(uuid())
+  companyId  String
+  branchId   String?
+  weekday    Int
+  isClosed   Boolean  @default(false)
+  opensAt    String?
+  closesAt   String?
+  breakStart String?
+  breakEnd   String?
+  updatedBy  String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company Company @relation("BusinessHours_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("BusinessHours_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@map("business_hours")
+}
+
+/// Feriado, data especial ou fechamento excepcional. kind: HOLIDAY | CLOSED | SPECIAL_HOURS
+model BusinessCalendarException {
+  id          String   @id @default(uuid())
+  companyId   String
+  branchId    String?
+  date        DateTime @db.Date
+  kind        String
+  opensAt     String?
+  closesAt    String?
+  description String?
+  createdBy   String?
+  createdAt   DateTime @default(now())
+
+  company Company @relation("BusinessCalendarException_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("BusinessCalendarException_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@map("business_calendar_exceptions")
+}
+
+/// Todo desconto (inclusive dentro do limite livre), item a item. Append-only.
+model DiscountEvent {
+  id                    String   @id @default(uuid())
+  companyId             String
+  branchId              String?
+  saleId                String?
+  serviceOrderId        String?
+  quoteId               String?
+  itemRef               String?
+  /// PRODUCT | PART | SERVICE | ORDER
+  itemType              String
+  description           String?
+  originalAmount        Decimal  @db.Decimal(12, 2)
+  discountAmount        Decimal  @db.Decimal(12, 2)
+  discountPercent       Decimal  @db.Decimal(7, 3)
+  finalAmount           Decimal  @db.Decimal(12, 2)
+  freeLimitPercent      Decimal  @db.Decimal(7, 3)
+  requiredAuthorization Boolean
+  requestedBy           String
+  authorizedBy          String?
+  reason                String?
+  createdAt             DateTime @default(now())
+
+  quote Quote? @relation("DiscountEvent_quoteId", fields: [companyId, quoteId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  sale Sale? @relation("DiscountEvent_saleId", fields: [companyId, saleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder ServiceOrder? @relation("DiscountEvent_serviceOrderId", fields: [companyId, serviceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("DiscountEvent_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("DiscountEvent_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId, createdAt])
+  @@index([saleId])
+  @@index([serviceOrderId])
+  @@map("discount_events")
+}
+
+/// Histórico do orçamento: CLOSED | EXPIRED | REOPENED.
+model QuoteEvent {
+  id          String   @id @default(uuid())
+  quoteId     String
+  quote       Quote    @relation(fields: [companyId, quoteId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  companyId   String
+  branchId    String?
+  eventType   String
+  fromStatus  String?
+  toStatus    String?
+  reason      String?
+  performedBy String
+  createdAt   DateTime @default(now())
+
+  company Company @relation("QuoteEvent_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("QuoteEvent_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([quoteId])
+  @@index([companyId])
+  @@map("quote_events")
+}
+
+/// Garantia dada no encerramento da OS. coverage: SERVICE | PART | SERVICE_AND_PART; durationUnit: DAYS | MONTHS | YEARS.
+/// Com prazo e km, vale o que ocorrer primeiro.
+model ServiceOrderWarranty {
+  id             String         @id @default(uuid())
+  companyId      String
+  branchId       String
+  serviceOrderId String         @unique
+  serviceOrder   ServiceOrder   @relation(fields: [companyId, serviceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  customerId     String
+  motorcycleId   String
+  coverage       String
+  durationValue  Int
+  durationUnit   String
+  kmLimit        Int?
+  startDate      DateTime
+  validUntil     DateTime
+  startKm        Decimal?       @db.Decimal(10, 1)
+  kmUntil        Decimal?       @db.Decimal(10, 1)
+  coveredItems   Json?
+  conditions     String?
+  notes          String?
+  createdBy      String
+  createdAt      DateTime       @default(now())
+  claims         WarrantyClaim[]
+
+  customer Customer @relation("ServiceOrderWarranty_customerId", fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  motorcycle Motorcycle @relation("ServiceOrderWarranty_motorcycleId", fields: [companyId, motorcycleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  /// Exigida pelo Prisma na relação 1:1 pela FK composta; redundante com o @unique da coluna (migração 20261014180000_composite_company_fks).
+  company Company @relation("ServiceOrderWarranty_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("ServiceOrderWarranty_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, serviceOrderId])
+  @@unique([companyId, id])
+  @@index([companyId, validUntil])
+  @@index([motorcycleId])
+  @@index([customerId])
+  @@map("service_order_warranties")
+}
+
+/// Ocorrência de garantia vinculada à OS original. status: OPEN | ACCEPTED | REJECTED | RESOLVED
+model WarrantyClaim {
+  id                String               @id @default(uuid())
+  companyId         String
+  branchId          String
+  warrantyId        String
+  warranty          ServiceOrderWarranty @relation(fields: [companyId, warrantyId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrderId    String
+  newServiceOrderId String?
+  description       String
+  kmAtClaim         Decimal?             @db.Decimal(10, 1)
+  status            String               @default("OPEN")
+  decisionNotes     String?
+  openedBy          String
+  decidedBy         String?
+  decidedAt         DateTime?
+  createdAt         DateTime             @default(now())
+  updatedAt         DateTime             @updatedAt
+
+  newServiceOrder ServiceOrder? @relation("WarrantyClaim_newServiceOrderId", fields: [companyId, newServiceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  serviceOrder ServiceOrder @relation("WarrantyClaim_serviceOrderId", fields: [companyId, serviceOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("WarrantyClaim_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("WarrantyClaim_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([warrantyId])
+  @@index([companyId])
+  @@map("warranty_claims")
+}
+
+/// Convênio de funcionário. limitType: FIXED | SALARY_PERCENT (nulo = segue a política da empresa); status: ACTIVE | SUSPENDED | ENDED
+model EmployeeAgreement {
+  id           String                    @id @default(uuid())
+  companyId    String
+  branchId     String?
+  userId       String?
+  customerId   String?
+  name         String
+  cpf          String
+  registration String?
+  salary       Decimal?                  @db.Decimal(12, 2)
+  limitType    String?
+  limitValue   Decimal?                  @db.Decimal(12, 2)
+  status       String                    @default("ACTIVE")
+  /// Filiais em que o convênio pode ser usado; vazio = todas as filiais da empresa
+  allowedBranchIds String[]                @default([])
+  notes        String?
+  createdBy    String
+  createdAt    DateTime                  @default(now())
+  updatedAt    DateTime                  @updatedAt
+  charges      EmployeeAgreementCharge[]
+
+  accountsReceivableEmployeeAgreements AccountsReceivable[] @relation("AccountsReceivable_employeeAgreementId")
+  customer Customer? @relation("EmployeeAgreement_customerId", fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  user User? @relation("EmployeeAgreement_userId", fields: [companyId, userId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  paymentEmployeeAgreements Payment[] @relation("Payment_employeeAgreementId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("EmployeeAgreement_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("EmployeeAgreement_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, cpf])
+  @@map("employee_agreements")
+}
+
+/// Uso do convênio de funcionário (uma compra), com as parcelas previstas em folha.
+model EmployeeAgreementCharge {
+  id              String                     @id @default(uuid())
+  companyId       String
+  branchId        String?
+  agreementId     String
+  agreement       EmployeeAgreement          @relation(fields: [companyId, agreementId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  saleId          String?
+  paymentId       String?                    @unique
+  amount          Decimal                    @db.Decimal(12, 2)
+  installments    Int                        @default(1)
+  /// Competência da 1ª parcela: YYYY-MM
+  firstCompetence String
+  authorizedBy    String?
+  createdBy       String
+  cancelledAt     DateTime?
+  cancelledBy     String?
+  createdAt       DateTime                   @default(now())
+  deductions      EmployeePayrollDeduction[]
+
+  payment Payment? @relation("EmployeeAgreementCharge_paymentId", fields: [companyId, paymentId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  sale Sale? @relation("EmployeeAgreementCharge_saleId", fields: [companyId, saleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("EmployeeAgreementCharge_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("EmployeeAgreementCharge_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([agreementId])
+  @@map("employee_agreement_charges")
+}
+
+/// Parcela prevista em folha. status: SCHEDULED | DEDUCTED | CANCELLED
+model EmployeePayrollDeduction {
+  id                String                  @id @default(uuid())
+  companyId         String
+  branchId          String?
+  chargeId          String
+  charge            EmployeeAgreementCharge @relation(fields: [companyId, chargeId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  agreementId       String
+  installmentNumber Int
+  competence        String
+  amount            Decimal                 @db.Decimal(12, 2)
+  status            String                  @default("SCHEDULED")
+  processedAt       DateTime?
+  processedBy       String?
+  createdAt         DateTime                @default(now())
+
+  company Company @relation("EmployeePayrollDeduction_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("EmployeePayrollDeduction_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([chargeId, installmentNumber], map: "employee_payroll_deductions_charge_installment")
+  @@index([agreementId, competence], map: "employee_payroll_deductions_agreement_competence_idx")
+  @@index([companyId])
+  @@map("employee_payroll_deductions")
+}
+
+/// Empresa conveniada (cliente corporativo com prazo). status: ACTIVE | BLOCKED | INACTIVE
+model AgreementCompany {
+  id                     String    @id @default(uuid())
+  companyId              String
+  branchId               String?
+  legalName              String
+  tradeName              String?
+  cnpj                   String
+  contactName            String?
+  phone                  String?
+  whatsapp               String?
+  email                  String?
+  zipCode                String?
+  street                 String?
+  number                 String?
+  complement             String?
+  district               String?
+  city                   String?
+  state                  String?
+  commercialTerms        String?
+  creditLimit            Decimal?  @db.Decimal(12, 2)
+  monthlyLimit           Decimal?  @db.Decimal(12, 2)
+  paymentTermDays        Int       @default(30)
+  interestPercentMonthly Decimal?  @db.Decimal(7, 3)
+  finePercent            Decimal?  @db.Decimal(7, 3)
+  blockAfterDaysOverdue  Int?
+  status                 String    @default("ACTIVE")
+  /// Filiais em que o convênio pode ser usado; vazio = todas as filiais da empresa
+  allowedBranchIds       String[]  @default([])
+  blockedAt              DateTime?
+  blockedBy              String?
+  blockedReason          String?
+  notes                  String?
+  createdBy              String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  accountsReceivableAgreementCompanys AccountsReceivable[] @relation("AccountsReceivable_agreementCompanyId")
+  collectionAttemptAgreementCompanys CollectionAttempt[] @relation("CollectionAttempt_agreementCompanyId")
+  paymentAgreementCompanys Payment[] @relation("Payment_agreementCompanyId")
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("AgreementCompany_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("AgreementCompany_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, cnpj])
+  @@map("agreement_companies")
+}
+
+/// Cobrança enviada manualmente por pessoa autorizada (uma por ação; sem robô). Append-only.
+/// channel: WHATSAPP | EMAIL; status: SENT | LINK_GENERATED | FAILED | NOT_CONFIGURED
+model CollectionAttempt {
+  id                 String             @id @default(uuid())
+  companyId          String
+  branchId           String?
+  receivableId       String
+  receivable         AccountsReceivable @relation(fields: [companyId, receivableId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  agreementCompanyId String?
+  channel            String
+  recipient          String?
+  amount             Decimal            @db.Decimal(12, 2)
+  dueDate            DateTime
+  status             String
+  provider           String?
+  providerMessage    String?
+  sentBy             String
+  createdAt          DateTime           @default(now())
+
+  agreementCompany AgreementCompany? @relation("CollectionAttempt_agreementCompanyId", fields: [companyId, agreementCompanyId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("CollectionAttempt_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("CollectionAttempt_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([receivableId])
+  @@index([companyId, createdAt])
+  @@map("collection_attempts")
+}
+
+/// Indisponibilidade da agenda numa janela (mecânico específico ou a filial inteira) — 2026-09-28
+model AgendaUnavailability {
+  id         String   @id @default(uuid())
+  companyId  String
+  branchId   String
+  /// vazio = a filial inteira (ex.: treinamento da equipe, manutenção)
+  mechanicId String?
+  startsAt   DateTime
+  endsAt     DateTime
+  reason     String
+  createdBy  String
+  createdAt  DateTime @default(now())
+
+  company Company @relation("AgendaUnavailability_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("AgendaUnavailability_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([companyId, branchId, startsAt])
+  @@map("agenda_unavailabilities")
+}
+
+/// Devolução ao fornecedor (cadeia de suprimento — não é garantia ao cliente) — 2026-09-28
+/// status: REQUESTED → APPROVED (estoque retirado) | REJECTED → SENT → CLOSED; CANCELLED antes do envio
+/// reason: DAMAGED | DEFECTIVE | WRONG_ITEM | NOT_ORDERED | OTHER
+/// outcome: CREDIT | REPLACEMENT | REFUND | REFUSED_BY_SUPPLIER
+model SupplierReturn {
+  id               String    @id @default(uuid())
+  companyId        String
+  branchId         String
+  returnNumber     Int
+  supplierId       String
+  supplier         Supplier  @relation(fields: [companyId, supplierId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  purchaseOrderId  String?
+  status           String    @default("REQUESTED")
+  reason           String
+  description      String?
+  requestedBy      String
+  approvedBy       String?
+  approvedAt       DateTime?
+  decisionNotes    String?
+  stockWithdrawnAt DateTime?
+  sentAt           DateTime?
+  sentBy           String?
+  shippingInfo     String?
+  outcome          String?
+  outcomeAmount    Decimal?  @db.Decimal(12, 2)
+  outcomeNotes     String?
+  closedAt         DateTime?
+  closedBy         String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  items  SupplierReturnItem[]
+  events SupplierReturnEvent[]
+
+  purchaseOrder PurchaseOrder? @relation("SupplierReturn_purchaseOrderId", fields: [companyId, purchaseOrderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("SupplierReturn_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("SupplierReturn_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@unique([companyId, returnNumber])
+  @@index([companyId, branchId, status])
+  @@index([supplierId])
+  @@map("supplier_returns")
+}
+
+model SupplierReturnItem {
+  id             String         @id @default(uuid())
+  companyId      String
+  branchId       String
+  returnId       String
+  supplierReturn SupplierReturn @relation(fields: [companyId, returnId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  productId      String
+  product        Product        @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  quantity       Decimal        @db.Decimal(10, 3)
+  unitCost       Decimal?       @db.Decimal(12, 2)
+  notes          String?
+  damageRecordId String?
+
+  damageRecord DamageRecord? @relation("SupplierReturnItem_damageRecordId", fields: [companyId, damageRecordId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("SupplierReturnItem_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("SupplierReturnItem_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([returnId])
+  @@index([productId])
+  @@index([companyId])
+  @@map("supplier_return_items")
+}
+
+/// Histórico da devolução (nunca apagado pela aplicação)
+model SupplierReturnEvent {
+  id             String         @id @default(uuid())
+  companyId      String
+  branchId       String
+  returnId       String
+  supplierReturn SupplierReturn @relation(fields: [companyId, returnId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  type           String
+  fromStatus     String?
+  toStatus       String?
+  userId         String
+  notes          String?
+  createdAt      DateTime       @default(now())
+
+  user User @relation("SupplierReturnEvent_userId", fields: [companyId, userId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  company Company @relation("SupplierReturnEvent_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("SupplierReturnEvent_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([returnId, createdAt])
+  @@index([companyId])
+  @@map("supplier_return_events")
+}
+
+/// Central de Ajuda e Suporte (2026-09-28). Chamado aberto por usuário de empresa; atendido pela equipe da plataforma.
+/// status: ABERTO | EM_ANALISE | AGUARDANDO_USUARIO | AGUARDANDO_SUPORTE | RESOLVIDO | ENCERRADO
+/// type/module/priority/source: catálogos em apps/api/src/services/support-catalog.ts (texto validado, sem enum no banco)
+model SupportTicket {
+  id                  String    @id @default(uuid())
+  /// Número do chamado: sequência global `support_ticket_number_seq` (START 1000, OWNED BY esta coluna; criada na migração 20260928200000).
+  /// `autoincrement()` é a forma que o Prisma usa para "default = nextval(sequência)": com `dbgenerated("nextval(...)")` o `migrate diff`
+  /// propõe REMOVER o default e a sequência (SET DEFAULT + DROP DEFAULT + DROP SEQUENCE) — o que deixaria novos chamados sem número.
+  ticketNumber        Int       @unique @default(autoincrement())
+  companyId           String
+  branchId            String?
+  requesterId         String
+  requesterName       String
+  requesterEmail      String?
+  requesterPhone      String?
+  requesterRole       String
+  companyName         String?
+  branchName          String?
+  subject             String
+  module              String
+  type                String
+  priority            String    @default("NORMAL")
+  status              String    @default("ABERTO")
+  description         String
+  source              String    @default("ADMIN_WEB")
+  appVersion          String?
+  /// Contexto da tela (módulo, tela, entidade validada no servidor, rótulo seguro) — sem dado sensível
+  context             Json?
+  assignedToId        String?
+  assignedToName      String?
+  assignedAt          DateTime?
+  firstResponseAt     DateTime?
+  resolvedAt          DateTime?
+  closedAt            DateTime?
+  lastMessageAt       DateTime  @default(now())
+  lastMessageBy       String    @default("REQUESTER")
+  requesterLastReadAt DateTime  @default(now())
+  supportLastReadAt   DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  messages    SupportTicketMessage[]
+  attachments SupportTicketAttachment[]
+  events      SupportTicketEvent[]
+
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("SupportTicket_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("SupportTicket_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([companyId, status, createdAt])
+  @@index([companyId, branchId])
+  @@index([requesterId, createdAt])
+  @@index([assignedToId, status])
+  @@index([module])
+  @@index([status, createdAt])
+  @@map("support_tickets")
+}
+
+/// Mensagem do chamado — só cresce (sem edição nem exclusão pela aplicação).
+model SupportTicketMessage {
+  id         String        @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  companyId  String
+  branchId   String?
+  authorId   String
+  authorName String
+  /// REQUESTER | COMPANY | SUPPORT
+  authorRole String
+  body       String
+  statusFrom String?
+  statusTo   String?
+  source     String        @default("ADMIN_WEB")
+  createdAt  DateTime      @default(now())
+
+  attachments SupportTicketAttachment[]
+
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("SupportTicketMessage_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("SupportTicketMessage_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([ticketId, createdAt])
+  @@map("support_ticket_messages")
+}
+
+/// Anexo guardado no banco (sob RLS), baixado só por rota autorizada. Remoção é lógica.
+model SupportTicketAttachment {
+  id         String                @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket         @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  messageId  String?
+  message    SupportTicketMessage? @relation(fields: [companyId, messageId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  companyId  String
+  branchId   String?
+  fileName   String
+  mimeType   String
+  size       Int
+  sha256     String
+  data       Bytes
+  uploadedBy String
+  uploadedByName String
+  removedAt  DateTime?
+  removedBy  String?
+  createdAt  DateTime              @default(now())
+
+  company Company @relation("SupportTicketAttachment_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("SupportTicketAttachment_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([ticketId])
+  @@index([companyId])
+  @@map("support_ticket_attachments")
+}
+
+/// Histórico imutável do chamado (abertura, status, atribuição, prioridade, anexos, reabertura, encerramento).
+model SupportTicketEvent {
+  id         String        @id @default(uuid())
+  ticketId   String
+  ticket     SupportTicket @relation(fields: [companyId, ticketId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  companyId  String
+  branchId   String?
+  type       String
+  fromValue  String?
+  toValue    String?
+  actorId    String
+  actorName  String
+  actorRole  String
+  createdAt  DateTime      @default(now())
+
+  company Company @relation("SupportTicketEvent_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("SupportTicketEvent_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([ticketId, createdAt])
+  @@index([companyId])
+  @@map("support_ticket_events")
+}
+
+/// Base de conhecimento (global, do produto): leitura para todos os usuários logados, escrita só da plataforma.
+model SupportKbCategory {
+  id        String   @id @default(uuid())
+  slug      String   @unique
+  name      String
+  sortOrder Int      @default(0)
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  articles SupportKbArticle[]
+
+  @@map("support_kb_categories")
+}
+
+model SupportKbArticle {
+  id          String            @id @default(uuid())
+  categoryId  String
+  category    SupportKbCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  slug        String            @unique
+  title       String
+  summary     String?
+  body        String
+  keywords    String?
+  module      String?
+  /// DRAFT | PUBLISHED
+  status      String            @default("DRAFT")
+  authorId    String
+  authorName  String
+  publishedAt DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @default(now()) @updatedAt
+  /// Coluna GERADA (`GENERATED ALWAYS AS … STORED`, tsvector, português: título A, resumo+palavras-chave B, corpo C) — mantida pelo banco, nunca
+  /// escrita pela aplicação. O `dbgenerated` abaixo é a expressão de geração como o PostgreSQL a guarda (é o que o `db pull` devolve): sem ele o
+  /// `migrate diff` propõe `ALTER COLUMN "search" DROP DEFAULT`; sem o índice GIN, `DROP INDEX "support_kb_articles_search_idx"` (a busca
+  /// `websearch_to_tsquery` de `support-kb.service.ts` cairia em varredura sequencial).
+  search      Unsupported("tsvector")? @default(dbgenerated("((setweight(to_tsvector('portuguese'::regconfig, COALESCE(title, ''::text)), 'A'::\"char\") || setweight(to_tsvector('portuguese'::regconfig, ((COALESCE(summary, ''::text) || ' '::text) || COALESCE(keywords, ''::text))), 'B'::\"char\")) || setweight(to_tsvector('portuguese'::regconfig, COALESCE(body, ''::text)), 'C'::\"char\"))"))
+
+  @@index([categoryId, status])
+  @@index([search], type: Gin)
+  @@map("support_kb_articles")
+}
+
+// ============================================================================
+// CANAIS DE VENDA (2026-10-04) — base para loja física, site próprio, iFood e marketplaces.
+// Nada aqui conecta a um serviço externo: o módulo CANAIS nasce DESATIVADO e nenhum canal nasce "Conectado".
+// Pedido externo NÃO é venda: `ExternalOrder` guarda o que chegou; a venda (`Sale`) só nasce por conversão deliberada.
+// ============================================================================
+
+/// Tipo técnico (identificador estável; o nome exibido é configurável em `SalesChannel.displayName`).
+enum SalesChannelType {
+  LOJA_FISICA
+  SITE_PROPRIO
+  IFOOD
+  MARKETPLACE
+  OUTRO
+}
+
+/// CONNECTED só é gravado depois de um teste real de conexão do provedor; salvar credencial não conecta.
+enum ChannelConnectionStatus {
+  NOT_CONFIGURED
+  UNVALIDATED
+  CONNECTED
+  ERROR
+}
+
+/// Ciclo do PEDIDO externo (não confundir com venda, pagamento ou documento fiscal).
+enum ExternalOrderStatus {
+  RECEIVED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+  CONVERTED
+  /// A reserva venceu sem pagamento confirmado (ou o pedido não foi tratado a tempo).
+  EXPIRED
+}
+
+enum ExternalPaymentStatus {
+  UNKNOWN
+  PENDING
+  CONFIRMED
+  FAILED
+  REFUNDED
+}
+
+/// Canal de venda configurado por empresa (`branchId` nulo = todas as filiais). Venda sem canal = loja física. Credencial só
+/// cifrada (`enc:v1`, mesma chave dos segredos fiscais) e nunca devolvida pela API; `type` não muda depois de criado.
+model SalesChannel {
+  id                   String                  @id @default(uuid())
+  companyId            String
+  branchId             String?
+  type                 SalesChannelType
+  displayName          String
+  isActive             Boolean                 @default(false)
+  /// Chave do provedor de integração (ex.: "ifood"); nula = sem integração (loja física).
+  provider             String?
+  connectionStatus     ChannelConnectionStatus @default(NOT_CONFIGURED)
+  lastSyncAt           DateTime?
+  lastError            String?
+  /// Posição de leitura da consulta periódica ao provedor (Integration Gateway); opaca, só o provedor a interpreta.
+  inboundCursor        String?
+  externalAccountId    String?
+  /// Configuração NÃO secreta.
+  config               Json?
+  credentialsEncrypted String?
+  /// Dica não reversível ("••••1234") para a tela.
+  credentialsHint      String?
+  createdBy            String
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+
+  sales          Sale[]
+  events         ChannelEvent[]
+  externalOrders ExternalOrder[]
+  inboundEvents  ChannelInboundEvent[]
+  apiCredentials ChannelApiCredential[]
+  productLinks   ChannelProductLink[]
+  externalPayments ExternalPayment[]
+  stockReservations StockReservation[]
+  outbox            ChannelOutbox[]
+
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  company Company @relation("SalesChannel_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("SalesChannel_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, id])
+  @@index([companyId])
+  @@index([companyId, branchId])
+  @@map("sales_channels")
+}
+
+/// Registro de acontecimentos do canal (configuração, teste de conexão, webhook recusado, pedido recebido, erro). Sem segredo.
+model ChannelEvent {
+  id            String       @id @default(uuid())
+  companyId     String
+  branchId      String?
+  channelId     String
+  channel       SalesChannel @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  type          String
+  level         String       @default("INFO")
+  message       String
+  correlationId String?
+  actorId       String?
+  data          Json?
+  createdAt     DateTime     @default(now())
+
+  company Company @relation("ChannelEvent_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ChannelEvent_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([channelId, createdAt])
+  @@index([companyId, createdAt])
+  @@map("channel_events")
+}
+
+/// Pedido recebido de um canal. A chave (canal, pedido externo) é única: o mesmo pedido recebido de novo não cria outro.
+model ExternalOrder {
+  id              String                @id @default(uuid())
+  companyId       String
+  branchId        String?
+  channelId       String
+  channel         SalesChannel          @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  externalOrderId String
+  status          ExternalOrderStatus   @default(RECEIVED)
+  paymentStatus   ExternalPaymentStatus @default(UNKNOWN)
+  /// Preenchido só quando o pedido vira venda (conversão deliberada; nunca na chegada). Único: um pedido nunca gera duas vendas.
+  saleId          String?               @unique
+  sale            Sale?                 @relation(fields: [companyId, saleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  acceptedAt      DateTime?
+  acceptedBy      String?
+  convertedAt     DateTime?
+  reservations    StockReservation[]
+  fulfillment     Fulfillment?
+  /// Resumo validado do que chegou (sem dados de pagamento sensíveis).
+  payload         Json
+  /// Total calculado pelo CÓRTEX com o preço oficial (nunca o valor que o canal afirmou). Nulo em pedido recebido por webhook de provedor.
+  totalAmount     Decimal?              @db.Decimal(12, 2)
+  /// O que o canal disse que era o total (só para conferência; não é fonte de cobrança).
+  channelTotal    Decimal?              @db.Decimal(12, 2)
+  /// COMMERCE_API (pedido criado pela Commerce API) ou WEBHOOK (evento de provedor).
+  source          String                @default("WEBHOOK")
+  correlationId   String?
+  /// Motivo da última mudança de estado do pedido (recusa, cancelamento).
+  statusReason    String?
+  statusChangedAt DateTime?
+  receivedAt      DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+
+  items           ExternalOrderItem[]
+  payments        ExternalPayment[]
+
+  /// Alvo das FKs compostas (companyId, <filho>Id) → este modelo; redundante com a PK (migração 20261014180000_composite_company_fks).
+  /// Exigida pelo Prisma na relação 1:1 pela FK composta; redundante com o @unique da coluna (migração 20261014180000_composite_company_fks).
+  company Company @relation("ExternalOrder_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ExternalOrder_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, saleId])
+  @@unique([companyId, id])
+  @@unique([channelId, externalOrderId])
+  @@index([companyId, receivedAt])
+  @@map("external_orders")
+}
+
+/// Idempotência e anti-repetição de eventos/webhooks: (canal, evento externo, operação) é único.
+model ChannelInboundEvent {
+  id              String       @id @default(uuid())
+  companyId       String
+  branchId        String?
+  channelId       String
+  channel         SalesChannel @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  externalEventId String
+  operation       String
+  /// RECEIVED (reivindicado), APPLIED, DEFERRED (pedido ainda desconhecido: fora de ordem), REJECTED (regra de negócio), REVIEW, FAILED.
+  outcome         String
+  receivedAt      DateTime     @default(now())
+  /// Integration Gateway (Fase 3): evento normalizado (sem cabeçalhos, sem segredo), para reprocessar o que chegou fora de ordem.
+  payload         Json?
+  occurredAt      DateTime?
+  /// Identificador do pedido no canal a que o evento se refere (para aplicar o que ficou esperando o pedido chegar).
+  orderRef        String?
+  correlationId   String?
+  attempts        Int          @default(0)
+  processedAt     DateTime?
+  lastError       String?
+
+  company Company @relation("ChannelInboundEvent_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ChannelInboundEvent_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([channelId, externalEventId, operation])
+  @@index([companyId, receivedAt])
+  @@index([channelId, orderRef, outcome])
+  @@index([outcome, receivedAt])
+  @@map("channel_inbound_events")
+}
+
+/// Caixa de saída (Integration Gateway, Fase 3): tudo o que o CÓRTEX precisa dizer a um provedor externo (estoque, preço, catálogo,
+/// estado do pedido, entrega) é GRAVADO aqui, na mesma transação da mudança, e enviado depois por rotina com prazo, retentativa
+/// e disjuntor. Nenhuma chamada externa roda no caminho do PDV. `dedupeKey` único por canal: o mesmo aviso nunca é enfileirado duas vezes.
+enum ChannelOutboxStatus {
+  PENDING
+  PROCESSING
+  SENT
+  DEAD
+  CANCELLED
+}
+
+model ChannelOutbox {
+  id            String              @id @default(uuid())
+  companyId     String
+  branchId      String?
+  channelId     String
+  channel       SalesChannel        @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// INVENTORY_SYNC | PRICE_SYNC | CATALOG_SYNC | ORDER_STATUS | FULFILLMENT_STATUS
+  type          String
+  dedupeKey     String
+  /// Dados de negócio a enviar (SKU, quantidade, estado). Nunca credencial, nunca cabeçalho.
+  payload       Json
+  status        ChannelOutboxStatus @default(PENDING)
+  attempts      Int                 @default(0)
+  maxAttempts   Int                 @default(8)
+  nextAttemptAt DateTime            @default(now())
+  /// Prazo máximo na caixa: depois dele a linha vira DEAD em vez de ser enviada velha.
+  deadlineAt    DateTime
+  lockedAt      DateTime?
+  sentAt        DateTime?
+  lastError     String?
+  lastErrorKind String?
+  correlationId String?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  company Company @relation("ChannelOutbox_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ChannelOutbox_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([channelId, dedupeKey])
+  @@index([status, nextAttemptAt])
+  @@index([companyId, channelId, status])
+  @@map("channel_outbox")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMMERCE API (Fase 1, 2026-10-05) — docs/CORTEX/COMMERCE_API.md
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// O que a credencial de um canal pode fazer na Commerce API.
+enum ChannelCredentialScope {
+  CATALOG_READ
+  ORDERS_READ
+  ORDERS_WRITE
+  PAYMENT_EVENTS_WRITE
+}
+
+/// Credencial que um CANAL usa para chamar o CÓRTEX (servidor → servidor, assinatura HMAC por requisição). NÃO é a credencial que o
+/// CÓRTEX usa num provedor (essa é `SalesChannel.credentialsEncrypted`). O segredo é cifrado (`enc:v1`) porque o HMAC precisa dele;
+/// aparece UMA vez, na criação, e nunca mais é devolvido. A empresa e a filial do canal vêm daqui, nunca da requisição.
+model ChannelApiCredential {
+  id              String                   @id @default(uuid())
+  companyId       String
+  branchId        String?
+  channelId       String
+  channel         SalesChannel             @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  /// Identificador público (`ck_` + hex); único no sistema para a busca antes de existir contexto de empresa.
+  keyId           String                   @unique
+  secretEncrypted String
+  /// Dica não reversível ("••••ab12") para a tela.
+  secretHint      String
+  label           String
+  scopes          ChannelCredentialScope[]
+  expiresAt       DateTime?
+  revokedAt       DateTime?
+  revokedBy       String?
+  lastUsedAt      DateTime?
+  createdBy       String
+  createdAt       DateTime                 @default(now())
+
+  company Company @relation("ChannelApiCredential_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ChannelApiCredential_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([channelId])
+  @@index([companyId])
+  @@map("channel_api_credentials")
+}
+
+/// Publicação de um produto para um canal. O CÓRTEX continua sendo o mestre do catálogo: aqui só há o vínculo e o estado
+/// (nada é público até ser publicado). Não há cópia do produto.
+model ChannelProductLink {
+  id          String       @id @default(uuid())
+  companyId   String
+  branchId    String?
+  channelId   String
+  channel     SalesChannel @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  productId   String
+  product     Product      @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  published   Boolean      @default(false)
+  /// Identificador do produto no canal (SKU externo), quando houver.
+  externalId  String?
+  publishedAt DateTime?
+  publishedBy String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  company Company @relation("ChannelProductLink_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ChannelProductLink_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([channelId, productId])
+  @@index([companyId])
+  @@index([channelId, published])
+  @@map("channel_product_links")
+}
+
+/// Linha de um pedido externo, já resolvida contra o catálogo do CÓRTEX (produto, preço oficial). Imutável depois de criada.
+model ExternalOrderItem {
+  id               String        @id @default(uuid())
+  companyId        String
+  branchId         String?
+  orderId          String
+  order            ExternalOrder @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  productId        String
+  product          Product       @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  sku              String
+  name             String
+  quantity         Decimal       @db.Decimal(10, 3)
+  /// Preço que o canal mostrou ao cliente.
+  channelUnitPrice Decimal       @db.Decimal(10, 2)
+  /// Preço oficial do CÓRTEX no momento do pedido (a Commerce API recusa o pedido se for diferente).
+  unitPrice        Decimal       @db.Decimal(10, 2)
+  lineTotal        Decimal       @db.Decimal(12, 2)
+
+  company Company @relation("ExternalOrderItem_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ExternalOrderItem_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@index([orderId])
+  @@index([productId])
+  @@index([companyId])
+  @@map("external_order_items")
+}
+
+/// Pagamento de um pedido externo — separado do pedido e da venda. `providerRef` único por canal impede o mesmo pagamento duas vezes.
+/// Hoje o CÓRTEX só RECEBE eventos de pagamento (informados pelo canal/provedor); não cobra.
+model ExternalPayment {
+  id          String                @id @default(uuid())
+  companyId   String
+  branchId    String?
+  channelId   String
+  channel     SalesChannel          @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  orderId     String
+  order       ExternalOrder         @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  providerRef String
+  status      ExternalPaymentStatus @default(PENDING)
+  amount      Decimal               @db.Decimal(12, 2)
+  /// CHANNEL_REPORTED (o canal informou) ou PROVIDER_CONFIRMED (confirmado direto pelo provedor de pagamento; Fase 3).
+  source      String                @default("CHANNEL_REPORTED")
+  /// Forma de pagamento informada pelo canal (opcional); sem informação = OUTRO. Vira a forma do `Payment` na conversão em venda.
+  method      PaymentMethod         @default(OTHER)
+  lastEventAt DateTime?
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  company Company @relation("ExternalPayment_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch? @relation("ExternalPayment_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([channelId, providerRef])
+  @@index([orderId])
+  @@index([companyId, status])
+  @@map("external_payments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// RESERVA DE ESTOQUE E FULFILLMENT (Fase 2, 2026-10-05) — docs/CORTEX/COMMERCE_API.md §4, §5 e §11
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum StockReservationStatus {
+  /// Reservado: tira a quantidade do DISPONÍVEL para venda (o saldo físico do livro não muda).
+  ACTIVE
+  /// Virou venda: o movimento `SALE` foi gravado na mesma transação.
+  CONSUMED
+  /// Liberado (cancelamento, recusa, falha de pagamento ou liberação manual), com motivo.
+  RELEASED
+  /// Venceu (`expiresAt` no passado) sem virar venda.
+  EXPIRED
+}
+
+/// Reserva de estoque de um pedido externo. NÃO é movimento do livro (o inventário fixa o saldo absoluto e apagaria uma reserva):
+/// é uma promessa temporária. Disponível para venda = saldo do livro da filial − reservas ACTIVE ainda não vencidas.
+/// Uma linha por (pedido, produto); a reserva do pedido nasce e morre inteira.
+model StockReservation {
+  id           String                 @id @default(uuid())
+  companyId    String
+  /// Filial de atendimento (a do canal).
+  branchId     String
+  channelId    String
+  channel      SalesChannel           @relation(fields: [companyId, channelId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  orderId      String
+  order        ExternalOrder          @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  productId    String
+  product      Product                @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  quantity     Decimal                @db.Decimal(10, 3)
+  status       StockReservationStatus @default(ACTIVE)
+  expiresAt    DateTime
+  closedAt     DateTime?
+  /// Por que deixou de estar ativa (CONVERTED, ORDER_CANCELLED, ORDER_REJECTED, PAYMENT_FAILED, MANUAL, EXPIRED…).
+  closedReason String?
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  company Company @relation("StockReservation_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("StockReservation_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([orderId, productId])
+  @@index([branchId, productId, status])
+  @@index([status, expiresAt])
+  @@index([companyId])
+  @@index([productId])
+  @@map("stock_reservations")
+}
+
+enum FulfillmentType {
+  PICKUP
+  OWN_DELIVERY
+  CHANNEL_DELIVERY
+}
+
+enum FulfillmentStatus {
+  PENDING
+  READY
+  PICKED_UP
+  IN_TRANSIT
+  DELIVERED
+  FAILED_DELIVERY
+  RETURNED
+  CANCELLED
+}
+
+/// Entrega física do que foi vendido — separada da venda (uma venda existe sem o fulfillment concluído). Nasce `PENDING` na conversão
+/// do pedido em venda. O tipo (retirada, entrega própria, entrega do canal) fica nulo até a regra de produto existir (DECISIONS 91).
+model Fulfillment {
+  id              String            @id @default(uuid())
+  companyId       String
+  branchId        String
+  orderId         String            @unique
+  order           ExternalOrder     @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  saleId          String            @unique
+  sale            Sale              @relation(fields: [companyId, saleId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  type            FulfillmentType?
+  status          FulfillmentStatus @default(PENDING)
+  statusChangedAt DateTime          @default(now())
+  statusChangedBy String?
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  /// Exigida pelo Prisma na relação 1:1 pela FK composta; redundante com o @unique da coluna (migração 20261014180000_composite_company_fks).
+  /// Exigida pelo Prisma na relação 1:1 pela FK composta; redundante com o @unique da coluna (migração 20261014180000_composite_company_fks).
+  company Company @relation("Fulfillment_company", fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  branch Branch @relation("Fulfillment_branch", fields: [companyId, branchId], references: [companyId, id], onDelete: Restrict, onUpdate: Cascade)
+  @@unique([companyId, saleId])
+  @@unique([companyId, orderId])
+  @@index([companyId, status])
+  @@map("fulfillments")
+}
+
+/// Revogação DURÁVEL de access token (decisão 107, 2026-10-14). O Redis continua sendo o caminho rápido; esta tabela é a fonte de
+/// verdade quando o Redis está fora do ar (o middleware consulta aqui em vez de aceitar o token revogado) e a origem da
+/// ressincronização do Redis quando ele volta. kind: TOKEN (subject = sha256 do token), USER ou COMPANY (subject = id; revokedAt =
+/// "tudo emitido até este instante está revogado"). Linhas expiram sozinhas (expiresAt) e são limpas pela própria aplicação.
+model AccessRevocation {
+  id        String   @id @default(uuid())
+  kind      String
+  subject   String
+  revokedAt DateTime @default(now())
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@unique([kind, subject])
+  @@index([expiresAt])
+  @@map("access_revocations")
+}
+
+/// Pedido de titular (LGPD, decisão 120): exportação dos dados ou anonimização de UM cliente, sempre pelo administrador da empresa.
+/// A linha é o registro durável do pedido (quem, quando, por quê, o que foi feito e o que foi RETIDO e por quê). Nunca guarda o dado
+/// anonimizado. O arquivo de exportação, quando existe, fica cifrado (enc:v1) só até exportExpiresAt e é apagado por rotina.
+model PrivacyRequest {
+  id              String    @id @default(uuid())
+  companyId       String
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  /// EXPORT | ANONYMIZE
+  requestType     String
+  subjectType     String    @default("CUSTOMER")
+  subjectId       String
+  /// PLANNED (anonimização planejada, aguardando confirmação) | COMPLETED | PARTIAL (parte retida por obrigação) | BLOCKED | FAILED
+  status          String
+  justification   String
+  requestedBy     String
+  requestedAt     DateTime  @default(now())
+  executedBy      String?
+  executedAt      DateTime?
+  /// Anonimização: o que seria anonimizado e o que seria retido (só contagens e motivos — sem dado pessoal).
+  plan            Json?
+  /// Resultado: contagens por tabela e retenções aplicadas (sem dado pessoal).
+  result          Json?
+  retainedUntil   DateTime?
+  /// Exportação: JSON cifrado (enc:v1), sha256 do arquivo em claro, validade e contagem de downloads.
+  exportPayload   String?
+  exportSha256    String?
+  exportExpiresAt DateTime?
+  exportDownloads Int       @default(0)
+  exportPurgedAt  DateTime?
+  failureCode     String?
+  updatedAt       DateTime  @updatedAt
+
+  @@index([companyId, requestedAt])
+  @@index([companyId, subjectId])
+  @@index([exportExpiresAt])
+  @@map("privacy_requests")
+}
+
+/// Imagem OPCIONAL do produto (decisão 122, 2026-10-14): no máximo uma por produto, guardada no banco sob RLS (mesma arquitetura dos anexos
+/// do Suporte — nenhum armazenamento de arquivo externo existe) e entregue só por rota autenticada da própria empresa. O conteúdo é
+/// VALIDADO e SANEADO antes de gravar (PNG/JPEG/WebP reais, sem metadados, sem bytes sobrando, dimensões e tamanho limitados).
+model ProductImage {
+  id        String   @id @default(uuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  productId String   @unique
+  /// FK composta (companyId, productId) → products(companyId, id): a imagem é sempre da mesma empresa do produto (ver `ProductBarcode`).
+  product   Product  @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Cascade, onUpdate: Cascade)
+  mimeType  String
+  byteSize  Int
+  width     Int
+  height    Int
+  sha256    String
+  data      Bytes
+  createdBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// Exigida pelo Prisma para a relação 1:1 pela FK composta; redundante com `productId @unique` (migração 20261014161000).
+  @@unique([companyId, productId])
+  @@index([companyId])
+  @@map("product_images")
+}

@@ -1,0 +1,22 @@
+# OVERRIDE para operar ATRÁS DA CLOUDFLARE (plano Free). Uso — sempre os três arquivos, nesta ordem:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.cloudflare.yml up -d --build
+#
+# Troca apenas o proxy: em vez do Caddyfile com Let's Encrypt, usa deploy/Caddyfile.cloudflare (certificado de ORIGEM da Cloudflare, IP real do
+# cliente por CF-Connecting-IP e 403 para quem não vier de um IP da Cloudflare). Nada mais muda: a API segue com TRUST_PROXY=1 e ENFORCE_HTTPS.
+#
+# PRÉ-REQUISITOS no .env desta pasta (nada aqui inventa domínio nem certificado):
+#   STAGING_DOMAIN=<domínio real>          (o mesmo usado pelo docker-compose.staging.yml)
+#   ORIGIN_CERT_DIR=<pasta FORA do repositório com origin.pem e origin.key>   (Origin Certificate gerado no painel da Cloudflare, curinga
+#                                          *.<domínio> + <domínio>; permissões 600; nunca versionar)
+# No painel da Cloudflare: DNS dos quatro nomes (api, admin, super, balcao) como registro A/AAAA com a nuvem LARANJA (proxy ligado), SSL/TLS em
+# "Full (strict)". Roteiro completo em docs/CORTEX/PRODUCAO.md §19.
+#
+# Requer Docker Compose >= 2.24.4 (usa `!override`). NÃO VALIDADO nesta máquina (sem daemon Docker): rode `docker compose ... config` antes do `up`.
+services:
+  proxy:
+    volumes: !override
+      - ./deploy/Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro
+      - ${ORIGIN_CERT_DIR:?defina ORIGIN_CERT_DIR no .env (pasta fora do repositório com origin.pem e origin.key da Cloudflare)}:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config

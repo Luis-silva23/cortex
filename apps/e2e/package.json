@@ -1,0 +1,13 @@
+{
+  "name": "@ln-system/e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Testes de navegador real (Chrome) contra o ambiente de DESENVOLVIMENTO com a empresa demo. Ver README.md.",
+  "scripts": {
+    "test": "jest --runInBand --forceExit"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "playwright-core": "^1.48.0"
+  }
+}

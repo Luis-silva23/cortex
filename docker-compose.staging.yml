@@ -1,0 +1,80 @@
+version: "3.9"
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# HOMOLOGAÇÃO COM HTTPS (staging equivalente à produção, em um host Linux). Uso:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.staging.yml up -d --build
+#
+# Acrescenta ao docker-compose.yml: um proxy reverso (Caddy) com certificado TLS AUTOMÁTICO na frente da API, do Admin Web e do Super
+# Admin, HTTPS obrigatório na API (ENFORCE_HTTPS) e as portas 3000/3001/3002 FECHADAS para fora (só o proxy chega nelas). PostgreSQL e
+# Redis já são publicados só em 127.0.0.1 no arquivo base: nada de banco ou fila fica exposto à internet.
+#
+# PRÉ-REQUISITOS (nada aqui inventa domínio): defina no .env desta pasta
+#   STAGING_DOMAIN=<domínio real da homologação>; no DNS, api.<domínio>, admin.<domínio>, super.<domínio> e balcao.<domínio> apontando para este host,
+#                    com as portas 80/443 liberadas (o Caddy emite o certificado de cada nome sozinho)
+#   TRUST_PROXY=1            (a API enxerga 1 salto de proxy: o Caddy)
+# Os endereços dos painéis e da API (WEB_URL, SUPER_ADMIN_URL, BALCAO_URL, NEXT_PUBLIC_API_URL, VITE_API_URL) são montados abaixo a partir de STAGING_DOMAIN.
+# Requer Docker Compose >= 2.24.4 (usa `!reset` para fechar as portas do arquivo base).
+#
+# ATENÇÃO: revisado, mas NÃO executado nesta máquina de desenvolvimento (sem daemon Docker nem domínio). A homologação real — certificado
+# emitido, redirecionamento 80→443, 426 em HTTP direto, PDV apontando para https://api.<domínio> — é PENDENTE em infraestrutura adequada
+# (docs/CORTEX/PRODUCAO.md §11 e docs/CORTEX/DISPOSITIVOS.md §10).
+# ---------------------------------------------------------------------------------------------------------------------------------
+services:
+  api:
+    environment:
+      ENFORCE_HTTPS: "true"
+      TRUST_PROXY: "${TRUST_PROXY:?defina TRUST_PROXY=1 no .env (a API fica atrás do proxy com TLS)}"
+      WEB_URL: "https://admin.${STAGING_DOMAIN:?defina STAGING_DOMAIN no .env}"
+      SUPER_ADMIN_URL: "https://super.${STAGING_DOMAIN}"
+      BALCAO_URL: "https://balcao.${STAGING_DOMAIN}"
+    ports: !reset []
+
+  admin-web:
+    build:
+      args:
+        # o Admin Web espera a URL COM o sufixo /api; o Super Admin acrescenta /api sozinho
+        NEXT_PUBLIC_API_URL: "https://api.${STAGING_DOMAIN:?defina STAGING_DOMAIN no .env}/api"
+    ports: !reset []
+
+  super-admin:
+    build:
+      args:
+        NEXT_PUBLIC_API_URL: "https://api.${STAGING_DOMAIN:?defina STAGING_DOMAIN no .env}"
+    ports: !reset []
+
+  balcao:
+    build:
+      args:
+        # sem sufixo /api (o Balcão acrescenta); https obrigatório em produção
+        VITE_API_URL: "https://api.${STAGING_DOMAIN:?defina STAGING_DOMAIN no .env}"
+    environment:
+      API_ORIGIN: "https://api.${STAGING_DOMAIN}"
+    ports: !reset []
+
+  proxy:
+    image: caddy:2-alpine
+    container_name: ln-system-proxy
+    restart: unless-stopped
+    environment:
+      STAGING_DOMAIN: ${STAGING_DOMAIN:?defina STAGING_DOMAIN no .env (domínio real da homologação)}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      admin-web:
+        condition: service_started
+      super-admin:
+        condition: service_started
+      balcao:
+        condition: service_started
+
+volumes:
+  caddy_data:
+  caddy_config:
