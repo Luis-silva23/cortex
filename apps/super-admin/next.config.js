@@ -12,6 +12,8 @@ const nextConfig = {
   // nesta sessão.
   output: 'standalone',
   transpilePackages: ['@ln-system/shared'],
+  // Nenhum código usa next/image; o otimizador (/_next/image) ficaria exposto por padrão e o next@14 tem RCE crítico nele (AVIF, <15.5.24). Desligado: o endpoint responde 404.
+  images: { unoptimized: true },
   // Não anuncia o framework; cabeçalhos de segurança em toda página (igual ao Admin Web, inclusive a CSP sem nonce: ver comentário em apps/admin-web/next.config.js).
   poweredByHeader: false,
   async headers() {

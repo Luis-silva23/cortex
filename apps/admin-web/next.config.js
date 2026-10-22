@@ -21,13 +21,9 @@ const nextConfig = {
   typescript: {
     ignoreBuildErrors: false,
   },
-  // Otimizações de imagem
-  images: {
-    formats: ['image/avif', 'image/webp'],
-    deviceSizes: [640, 750, 828, 1080, 1200, 1920],
-    imageSizes: [16, 32, 48, 64, 96, 128, 256, 384],
-    minimumCacheTTL: 60,
-  },
+  // Nenhum código usa next/image (a imagem do produto vem da própria API). O otimizador (/_next/image) ficava ATIVO, com AVIF habilitado, e o next@14 tem
+  // RCE crítico nele (AVIF, <15.5.24). Desligado: o endpoint responde 404 (provado com `next start`).
+  images: { unoptimized: true },
   // Code splitting otimizado
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
