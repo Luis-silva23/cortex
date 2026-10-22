@@ -34,6 +34,12 @@ Nenhum provedor real foi contactado em nenhum teste: todos usam resposta simulad
 
 Quem avisa: o **notificador da API** (alertas que a própria API detecta) e o **monitor independente** (`apps/monitor`, que continua avisando mesmo com a API fora). Alerta `EXTERNAL_*` registrado no painel pelo monitor **não é avisado de novo** pela API.
 
+## 2.1 Onde administrar (Super Admin › Observabilidade › Serviços externos)
+
+Os três canais ficam na mesma tela, com o mesmo padrão: **situação real** (pendente = "NÃO está funcionando"; desligado = "nada é enviado"; ativo = ainda sem prova de entrega), **do que depende** fora do sistema (contratação, aprovação externa, configuração no servidor), o que **falta**, destinatários válidos, último envio aceito, falhas e supressões em 24 h, disjuntor e consumo por hora/dia/mês.
+- **Ligar/desligar** cada canal e **reduzir limites** (por hora/dia/mês e janela anti-repetição) em "Controle de custos e volume". O valor nunca passa do **teto do servidor**: a tela barra o que passa do teto (e mostra o motivo), e o servidor continua sendo a autoridade — ignora o que passa do teto e recusa valor inválido ou chave desconhecida. Cada mudança é auditada. Só SUPER_ADMIN (os demais papéis recebem 403).
+- **Não há campo para chave, token, senha, remetente ou número**: credenciais ficam só nas variáveis de ambiente do servidor, fora do banco e da tela. Ligar um canal pendente **não** o faz funcionar (a tela avisa).
+
 ## 3. O que falta para ligar cada canal (e é com você)
 
 ### E-mail — Resend

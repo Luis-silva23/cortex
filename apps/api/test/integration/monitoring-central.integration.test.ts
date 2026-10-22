@@ -60,8 +60,11 @@ describe('Central de Monitoramento', () => {
   const get = (p: string, t = saToken) => request(app).get(`${CENTRAL}${p}`).set(bearer(t));
   const post = (p: string, body: object = {}, t = saToken) => request(app).post(`${CENTRAL}${p}`).set(bearer(t)).send(body);
   const resetGeneralLimit = async () => {
-    for (const ip of ['::ffff:127.0.0.1', '::1', '127.0.0.1']) await advancedRateLimiter.reset('general', ip);
+    for (const ip of ['::ffff:127.0.0.1', '::1', '127.0.0.1']) await advancedRateLimit_reset(ip);
+    // o limite geral é por USUÁRIO quando há token (100/min): sem zerar a chave do Super Admin e dos papéis de empresa, a suíte inteira passa de 100 requisições no minuto
+    for (const id of [saId, A?.userId]) if (id) await advancedRateLimit_reset(`user:${id}`);
   };
+  const advancedRateLimit_reset = (key: string) => advancedRateLimiter.reset('general', key);
   const state: Record<string, any> = {};
   const alertIds = new Set<string>();
   const leadIds = new Set<string>();
@@ -628,6 +631,88 @@ describe('Central de Monitoramento', () => {
       expect(check.body.checked).toBe(false);
       expect(fetchSpy).not.toHaveBeenCalled();
       fetchSpy.mockRestore();
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------------------------
+  describe('administração dos canais SMS e WhatsApp (Serviços externos)', () => {
+    const SECRET_TOKEN = 'tok_segredo_de_teste_nao_pode_vazar';
+    const SMS_WA_ENV: Record<string, string> = {
+      TWILIO_ACCOUNT_SID: `AC${'a'.repeat(32)}`,
+      TWILIO_AUTH_TOKEN: SECRET_TOKEN,
+      ALERT_SMS_FROM: '+15005550006',
+      ALERT_SMS_TO: '+5511999998888',
+      ALERT_SMS_SENDER_VERIFIED: 'true',
+      TWILIO_WHATSAPP_FROM: '+14155238886',
+      TWILIO_WHATSAPP_CONTENT_SID: `HX${'b'.repeat(32)}`,
+      ALERT_WHATSAPP_TO: '+5511999998888',
+      ALERT_WHATSAPP_PROVIDERS: 'twilio',
+      ALERT_WHATSAPP_TEMPLATE_APPROVED: 'true',
+    };
+    const put = (body: object, t = saToken) => request(app).put(`${CENTRAL}/settings`).set(bearer(t)).send(body);
+    const clearEnv = () => { for (const k of [...Object.keys(SMS_WA_ENV), 'ALERT_SMS_MAX_PER_HOUR', 'ALERT_WHATSAPP_MAX_PER_DAY', 'META_WHATSAPP_TOKEN', 'META_WHATSAPP_PHONE_NUMBER_ID', 'ALERT_WHATSAPP_TEMPLATE_NAME']) delete process.env[k]; };
+    afterEach(async () => {
+      clearEnv();
+      await put({ toggles: { smsNotifications: null, whatsappNotifications: null }, limits: { smsMaxPerHour: null, smsMaxPerDay: null, whatsappMaxPerDay: null, whatsappDedupeMinutes: null } });
+      __resetSettingsCache();
+    });
+
+    it('SEM credenciais: SMS e WhatsApp aparecem PENDENTES (não funcionando), com o que falta, os tetos do servidor e nenhum envio', async () => {
+      clearEnv();
+      __resetSettingsCache();
+      const res = await get('/external');
+      for (const k of ['sms', 'whatsapp']) {
+        expect(res.body[k]).toMatchObject({ configured: false, state: 'PENDING_CONFIGURATION', enabled: true, recipients: 0, providers: [] });
+        expect(res.body[k].consumption.sent).toEqual({ hour: 0, day: 0, month: 0 });
+      }
+      expect(res.body.sms.missing).toEqual(expect.arrayContaining(['ALERT_SMS_SENDER_VERIFIED=true']));
+      expect(res.body.whatsapp.missing.join(' ')).toMatch(/ALERT_WHATSAPP_TEMPLATE_APPROVED=true/);
+      expect(res.body.costControls.limits).toMatchObject({ smsMaxPerHour: 3, smsMaxPerDay: 10, smsMaxPerMonth: 100, whatsappMaxPerHour: 3, whatsappMaxPerDay: 10, whatsappMaxPerMonth: 100 });
+      expect(res.body.costControls.toggles).toMatchObject({ smsNotifications: true, whatsappNotifications: true });
+    });
+
+    it('configurados: ATIVOS; desligar pela tela os põe em DESLIGADO (sem envio); religar volta; a resposta nunca traz o segredo, o remetente nem o número', async () => {
+      Object.assign(process.env, SMS_WA_ENV);
+      __resetSettingsCache();
+      const on = await get('/external');
+      expect(on.body.sms).toMatchObject({ configured: true, state: 'ACTIVE', recipients: 1, providers: ['twilio'] });
+      expect(on.body.whatsapp).toMatchObject({ configured: true, state: 'ACTIVE', recipients: 1, providers: ['twilio'] });
+      const off = await put({ toggles: { smsNotifications: false, whatsappNotifications: false } });
+      expect(off.status).toBe(200);
+      const after = await get('/external');
+      expect(after.body.sms).toMatchObject({ state: 'DISABLED', enabled: false, configured: true });
+      expect(after.body.whatsapp).toMatchObject({ state: 'DISABLED', enabled: false });
+      expect(after.body.costControls.overridden).toEqual(expect.arrayContaining(['smsNotifications', 'whatsappNotifications']));
+      const back = await put({ toggles: { smsNotifications: null, whatsappNotifications: null } });
+      expect(back.status).toBe(200);
+      expect((await get('/external')).body.sms.state).toBe('ACTIVE');
+      const text = JSON.stringify([on.body, after.body]);
+      for (const secret of [SECRET_TOKEN, 'a'.repeat(32), 'b'.repeat(32), '+5511999998888', '5511999998888', '+15005550006', '+14155238886']) expect(text).not.toContain(secret);
+    });
+
+    it('limites: reduzir vale; acima do teto do servidor NÃO surte efeito; negativo, texto e chave desconhecida são recusados; a tela não contorna o servidor', async () => {
+      process.env.ALERT_SMS_MAX_PER_HOUR = '5';
+      __resetSettingsCache();
+      const base = (await get('/settings')).body;
+      expect(base.limits.smsMaxPerHour).toBe(5);
+      expect(base.envCeilings.smsMaxPerHour).toBe(5);
+      const lowered = await put({ limits: { smsMaxPerHour: 2, whatsappMaxPerDay: 4 } });
+      expect(lowered.status).toBe(200);
+      expect(lowered.body.limits).toMatchObject({ smsMaxPerHour: 2, whatsappMaxPerDay: 4 });
+      const above = await put({ limits: { smsMaxPerHour: 500, whatsappMaxPerDay: 999999 } });
+      expect(above.status).toBe(200);
+      expect(above.body.limits.smsMaxPerHour).toBe(5);
+      expect(above.body.limits.whatsappMaxPerDay).toBe(10);
+      for (const bad of [{ smsMaxPerHour: -1 }, { smsMaxPerHour: 'muito' }, { smsInventado: 1 }]) expect((await put({ limits: bad })).status).toBe(400);
+      expect((await put({ toggles: { smsInventado: false } })).status).toBe(400);
+    });
+
+    it('permissão: só o Super Admin altera; administrador, gerente e operador recebem 403 e nada muda', async () => {
+      for (const t of [adminA, managerA, operatorA]) {
+        expect((await put({ toggles: { smsNotifications: false } }, t)).status).toBe(403);
+        expect((await request(app).get(`${CENTRAL}/external`).set(bearer(t))).status).toBe(403);
+      }
+      expect((await get('/settings')).body.toggles.smsNotifications).toBe(true);
     });
   });
 

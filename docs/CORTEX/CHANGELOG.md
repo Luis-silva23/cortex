@@ -4,6 +4,10 @@ Rodada a rodada, do mais recente para o mais antigo. Cada correção de defeito 
 Até 2026-09-25 o detalhe (achado, prova, incidente) está no
 [registro de auditoria](historico/registro-de-auditoria-2026-09-14-a-25.md).
 
+## Serviços externos: administração dos canais SMS e WhatsApp (2026-10-22)
+
+A tela Observabilidade › Serviços externos passou a mostrar e administrar e-mail, **SMS e WhatsApp** com o mesmo padrão: situação real (pendente = "NÃO está funcionando"), dependências externas (contratação, aprovação, configuração no servidor), o que falta, consumo, disjuntor, liga/desliga e limites dentro do **teto do servidor** (a tela barra e o servidor decide). Sem campo de credencial. Testes de integração: 114/114 em `monitoring-central` (4 novos: pendente, ativo/desligado sem vazar segredo, limites e teto, permissões). Sem mudança de API. Detalhe em [ALERTAS_CANAIS §2.1](ALERTAS_CANAIS.md).
+
 ## Organização, infraestrutura, alertas e segurança (2026-10-22)
 
 Detalhe em [MONITORAMENTO_EXTERNO](MONITORAMENTO_EXTERNO.md), [ALERTAS_CANAIS](ALERTAS_CANAIS.md) e [ORGANIZACAO_GIT_E_BACKUP](ORGANIZACAO_GIT_E_BACKUP.md).
