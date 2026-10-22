@@ -395,7 +395,7 @@ Nunca envie senhas ou tokens no chat: coloque-os direto no `.env` do servidor ou
 
 | Item | Estado |
 | --- | --- |
-| Arquivos de infraestrutura gratuita | **preparado**, validado só em sintaxe; **nunca executado** (sem Docker/Linux aqui) |
+| Arquivos de infraestrutura gratuita | **preparado**; a pilha base + WAL foi **executada no runner Linux do GitHub** (workflow Stack, 0 falhas, 2026-10-22); os overlays staging/cloudflare/free só tiveram `config` validado; **nunca executados em servidor real** |
 | Servidor Oracle | **bloqueado**: depende da sua conta, da região e da capacidade disponível |
 | Cloudflare/HTTPS/DNS | **preparado, depende de domínio e conta** |
 | Backup externo e restauração em outro host | **preparado, depende de bucket e credenciais; não provado** |

@@ -95,7 +95,7 @@ Nada foi publicado. Para o projeto virar uma aplicação de produção (**Fase 4
 | Segredos (`DATA_ENCRYPTION_KEY`, JWT, role de backup) | 🟣 só no `.env` de dev (P2) |
 | Expurgo de auditoria antiga com segredo | 🟣 pendente (P3) |
 | `docker-compose.yml` | 🟡 corrigido em 2026-10-06 (senhas obrigatórias por variável, portas em loopback; **não validado com Docker**); continua sendo stack de desenvolvimento/homologação |
-| `Dockerfile` | existe para `api`, `admin-web` e `super-admin`; **nunca validado aqui** (sem Docker); não há para PDV, mobile e TV |
+| `Dockerfile` | existe para `api`, `admin-web`, `super-admin` e `balcao`; **construídos no GitHub Actions** (job Docker Build) e **executados** no workflow Stack (2026-10-22); não validados em servidor real; não há para PDV, mobile e TV |
 | CI/CD | existe `.github/workflows/ci.yml`; **nunca rodou no GitHub** (e o repositório não tem remoto); não há entrega (CD) |
 | HTTPS, domínio, `trust proxy` | 🔴 domínio/HTTPS não existem (a API não termina TLS); 🟡 `TRUST_PROXY` configurável e validado (decisão 47: falta o valor da topologia real) |
 | Backup e restauração | ✅ `backup:verify` 18/18 (dev); 🟣 rotina em produção e teste de restauração no ambiente real |

@@ -4,6 +4,20 @@ Rodada a rodada, do mais recente para o mais antigo. Cada correção de defeito 
 Até 2026-09-25 o detalhe (achado, prova, incidente) está no
 [registro de auditoria](historico/registro-de-auditoria-2026-09-14-a-25.md).
 
+## Pilha real do compose executada no GitHub e endurecimento de segurança (2026-10-22)
+
+Pela primeira vez a pilha do `docker-compose.yml` foi **executada** (runner Linux do GitHub, workflow `stack-smoke.yml`: `gen-env.sh` → `docker compose up --build` com o overlay WAL → `deploy/homologacao/validar-homologacao.sh --wal` → front-ends e API respondendo 200), com banco novo e segredos aleatórios descartados no fim. **Não prova** HTTPS, domínio/DNS, cópia off-site do backup, restauração em outro host, nem produção.
+
+| O quê |
+|---|
+| **Execuções:** run 39709324819 reprovou em 3 min (Postgres não iniciava); run 39711336639 reprovou com 4 falhas do roteiro; run 39715194557 (`c59008c`) terminou com **0 falhas** em ~11 min: Postgres 18 com papéis separados, 57 migrations, `db-grants` (contexto assinado exigido), API saudável, backup cifrado gerado pelo serviço de backup, WAL arquivado sem falhas, base backup verificado e os 4 serviços HTTP respondendo. |
+| **Defeito do compose:** `postgres:18` guarda os dados em `/var/lib/postgresql/18/docker` e recusa iniciar com o volume em `/var/lib/postgresql/data`; o volume passa a ser montado em `/var/lib/postgresql` (nenhum volume em uso existia: a pilha nunca tinha subido). |
+| **Defeito de segurança (decisão 152):** o serviço `api` usava `env_file: .env` e recebia TODAS as senhas (superusuário do Postgres, dono das tabelas, que pode desligar a RLS, e a credencial de backup com BYPASSRLS), anulando a separação de papéis. O `env_file` saiu: a API recebe só 101 variáveis de aplicação (repasse; ausente continua ausente, igual ao comportamento anterior). Variável nova da API precisa entrar na lista do compose (`stack-config.test.ts` reprova se faltar ou se uma credencial de infraestrutura entrar). |
+| **Bugs do roteiro e do script de base backup:** `sa`/`as_app` perdiam o código de saída do psql no pipe (todo `must_fail` reprovava mesmo com o banco negando "permission denied"); `base-backup.sh` conectava como a role `postgres`, que não existe no compose (usa `POSTGRES_USER`). |
+| **Next 14 (`/_next/image`):** nenhum código usa `next/image`, mas o otimizador ficava ativo (200 para imagem local; o Admin Web ainda habilitava AVIF) e o `next@14` tem RCE crítico nele. `images: { unoptimized: true }` nos dois painéis: o endpoint responde 404 e `/login` continua 200 (provado com `next start`). O RCE crítico "em servidor Windows" não se aplica (implantação Linux). Os demais avisos do Next (rewrites, Server Actions, middleware) não se aplicam: o código não usa esses recursos. **Pendente:** upgrade do Next para a linha 15.5.24+ (versão maior). |
+| **Testes de regressão novos** (reprovam no código anterior): `stack-config.test.ts` (5 de 6) e `next-config-hardening.test.ts`. |
+| **Pendente/aberto:** `npm audit fix` não funciona com o npm 10.9 (endpoint de auditoria aposentado); correções de dependência sem versão maior precisam de `npm update` pontual. Pilha com HTTPS (staging/Caddy/Cloudflare), servidor, domínio, cópia off-site e restauração em outro host dependem de infraestrutura real. |
+
 ## Estabilização do repositório publicado e da integração contínua (2026-10-21)
 
 Repositório publicado `Luis-silva23/cortex` (snapshot `5e9b941` na `main`; **não** carrega o histórico do projeto original). A 1ª execução do GitHub Actions (run 39671319539) reprovou 4 dos 7 jobs. Cada causa abaixo foi **reproduzida localmente** em um checkout limpo do commit publicado (o log remoto exige login; só o passo reprovado é público). Nenhuma regra de negócio, policy, permissão ou teste foi relaxado. **Produção continua NÃO declarada pronta**: Docker build real, HTTPS, staging, restauração de backup externo e os demais itens de [PRODUCAO](PRODUCAO.md) seguem pendentes; os números abaixo são de testes **locais** (Windows, Node 22, PostgreSQL 18.6 e Redis 8.10 descartáveis), não do GitHub.

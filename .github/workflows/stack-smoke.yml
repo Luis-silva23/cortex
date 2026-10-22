@@ -63,7 +63,8 @@ jobs:
           r=$(ls -1 validacao-homologacao-*.txt 2>/dev/null | tail -1 || true)
           if [ -n "$r" ]; then
             { echo '### validar-homologacao.sh --wal'; echo '```'; sed -e 's/\x1b\[[0-9;]*m//g' "$r" | tail -150; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-            grep -E '^(FAIL|== RESULTADO)' "$r" | head -9 | while IFS= read -r l; do echo "::error title=validar-homologacao::${l:0:230}"; done || true
+            grep -E '^FAIL' "$r" | head -9 | while IFS= read -r l; do echo "::error title=validar-homologacao::${l:0:230}"; done || true
+            grep -E '^== RESULTADO' "$r" | head -1 | while IFS= read -r l; do echo "::notice title=validar-homologacao::${l:0:230}"; done || true
             echo "PASS: $(grep -c '^PASS' "$r")  FAIL: $(grep -c '^FAIL' "$r")"
           else
             echo "::error title=stack::o roteiro não gerou relatório"

@@ -1,5 +1,5 @@
 #!/bin/sh
-# VALIDAÇÃO DE HOMOLOGAÇÃO do CÓRTEX num host Linux com Docker (decisões 149–152). *** NÃO FOI EXECUTADO ***: a máquina de desenvolvimento não tem Docker/WSL/Linux. Este script
+# VALIDAÇÃO DE HOMOLOGAÇÃO do CÓRTEX num host Linux com Docker (decisões 149–152). *** EXECUTADO só no runner Linux do GitHub (workflow "Stack", --wal, sem --tls: 0 falhas em 2026-10-22); NÃO FOI EXECUTADO num servidor real (TLS/DNS/cópia off-site) ***: a máquina de desenvolvimento não tem Docker/WSL/Linux. Este script
 # existe para que a validação real seja UM comando no ambiente certo, com resultado objetivo (PASS/FAIL por item) e sem inventar nada. Enquanto não rodar num host real, o
 # estado oficial é "Compose NÃO validado / staging HTTPS NÃO validado".
 #
