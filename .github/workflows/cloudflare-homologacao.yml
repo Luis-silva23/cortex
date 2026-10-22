@@ -1,0 +1,87 @@
+name: Cloudflare (homologação do Worker, sem implantar)
+
+# Prova, num runner Linux, que o Admin Web e o Super Admin constroem com o adaptador OpenNext para Cloudflare Workers e respondem no runtime
+# do Workers (workerd, local). NÃO implanta, NÃO usa segredo nem conta Cloudflare (`wrangler deploy --dry-run` e `wrangler dev --local`).
+# Manual e por mudança nos arquivos do Worker: não faz parte do CI normal. Detalhes e limites: docs/CORTEX/CLOUDFLARE.md.
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/admin-web/wrangler.jsonc'
+      - 'apps/super-admin/wrangler.jsonc'
+      - '.github/workflows/cloudflare-homologacao.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  worker:
+    name: Worker ${{ matrix.app }} (build OpenNext + dry-run + workerd local)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [admin-web, super-admin]
+    env:
+      # versões FIXADAS (o adaptador não entra no package.json do projeto: ver docs/CORTEX/CLOUDFLARE.md)
+      OPENNEXT_VERSION: '1.20.13'
+      WRANGLER_VERSION: '4.151.3'
+      WRANGLER_SEND_METRICS: 'false'
+      # valor de validação (https obrigatório no build de produção): nunca um domínio real
+      NEXT_PUBLIC_API_URL: https://api.ci.invalid/api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - name: Compilar shared
+        run: npx prisma generate --schema=packages/database/prisma/schema.prisma && npm run build --workspace=@ln-system/shared
+      - name: Build OpenNext
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          set -o pipefail
+          npx --yes @opennextjs/cloudflare@${OPENNEXT_VERSION} build 2>&1 | tee /tmp/opennext.log
+      - name: Dry-run do deploy (valida pacote e limites; não envia nada)
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          set -o pipefail
+          npx --yes wrangler@${WRANGLER_VERSION} deploy --dry-run --outdir /tmp/wrangler-out 2>&1 | tee /tmp/dryrun.log
+          ls -l /tmp/wrangler-out/worker.js
+          gzip -c /tmp/wrangler-out/worker.js | wc -c | awk '{printf "worker.js gzip: %.2f MiB\n", $1/1048576}'
+      - name: Executar no workerd (local) e consultar
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          npx --yes wrangler@${WRANGLER_VERSION} dev --local --port 8787 --ip 127.0.0.1 > /tmp/wrangler-dev.log 2>&1 &
+          echo $! > /tmp/wrangler.pid
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8787/login || true)
+            [ "$code" = "200" ] && break
+            sleep 2
+          done
+          set -e
+          echo "GET /login -> $code"
+          test "$code" = "200"
+          headers=$(curl -s -D - -o /dev/null http://127.0.0.1:8787/login)
+          echo "$headers" | tr -d '\r' | grep -iE '^(content-security-policy|strict-transport-security|x-frame-options|x-content-type-options|referrer-policy)'
+          for h in content-security-policy strict-transport-security x-frame-options x-content-type-options referrer-policy; do
+            echo "$headers" | grep -qi "^$h:" || { echo "::error title=cabeçalho ausente::$h"; exit 1; }
+          done
+          img=$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8787/_next/image?url=%2Fx.png&w=64&q=75')
+          echo "GET /_next/image -> $img (esperado 404: otimizador desligado)"
+          test "$img" = "404"
+          nf=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8787/rota-que-nao-existe)
+          echo "GET rota inexistente -> $nf"
+          test "$nf" = "404"
+      - name: Anotar falhas (o log do job exige login)
+        if: failure()
+        run: |
+          for f in /tmp/opennext.log /tmp/dryrun.log /tmp/wrangler-dev.log; do
+            [ -f "$f" ] && grep -iE 'error|failed|cannot|exceed|too large|not supported' "$f" | head -4 | while IFS= read -r l; do echo "::error title=cloudflare ${{ matrix.app }}::${l:0:230}"; done
+          done
+          true
+      - name: Encerrar o workerd
+        if: always()
+        run: kill "$(cat /tmp/wrangler.pid)" 2>/dev/null || true
