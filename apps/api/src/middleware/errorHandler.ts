@@ -128,7 +128,7 @@ const handleError = (
  */
 function handlePrismaError(err: Prisma.PrismaClientKnownRequestError, res: Response) {
   switch (err.code) {
-    case 'P2002':
+    case 'P2002': {
       // Violação de constraint unique
       const field = (err.meta?.target as string[])?.join(', ') || 'campo';
       return res.status(409).json({
@@ -137,6 +137,7 @@ function handlePrismaError(err: Prisma.PrismaClientKnownRequestError, res: Respo
         statusCode: 409,
         details: { field },
       });
+    }
 
     case 'P2025':
       // Registro não encontrado

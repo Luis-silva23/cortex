@@ -188,7 +188,7 @@ class AdvancedRateLimiter {
         });
 
         logger.info('Rate limiter initialized with Redis');
-      } catch (error) {
+      } catch {
         logger.warn('Failed to connect to Redis, using memory-based rate limiter');
         this.initializeMemoryLimiters();
       }

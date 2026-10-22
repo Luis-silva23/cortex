@@ -17,7 +17,7 @@ import convertService from './convert.service';
  *  - valor diferente do total do pedido e pagamento confirmado em pedido já encerrado NÃO são descartados nem aplicados em silêncio:
  *    são registrados como alerta (WARN) para tratamento por pessoa autorizada (mesmo princípio da exceção de pagamento da venda).
  */
-const refPattern = /^[A-Za-z0-9._:\-]+$/;
+const refPattern = /^[A-Za-z0-9._:-]+$/;
 
 export const paymentEventSchema = z
   .object({

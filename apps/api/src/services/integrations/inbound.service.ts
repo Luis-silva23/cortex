@@ -25,7 +25,7 @@ import { Logger } from '../logger.service';
  *  - SEM SEGREDO: só ids, códigos e valores de negócio vão para o banco e para os eventos do canal; mensagens de erro são sanitizadas.
  */
 
-const refPattern = /^[A-Za-z0-9._:\-]+$/;
+const refPattern = /^[A-Za-z0-9._:-]+$/;
 const idSchema = z.string().trim().min(1).max(120).regex(refPattern, 'use letras, números e . _ : -');
 const when = z.string().datetime().optional();
 

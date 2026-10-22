@@ -28,7 +28,7 @@ const principalOf = (req: Request): ChannelPrincipal => {
 
 const idempotencyKeyFormat = (req: Request, _res: Response, next: NextFunction) => {
   const key = req.header('Idempotency-Key');
-  if (key !== undefined && !/^[A-Za-z0-9._:\-]{8,128}$/.test(key)) return next(commerceError.invalidRequest([{ path: 'Idempotency-Key', message: 'use de 8 a 128 caracteres: letras, números e . _ : -' }]));
+  if (key !== undefined && !/^[A-Za-z0-9._:-]{8,128}$/.test(key)) return next(commerceError.invalidRequest([{ path: 'Idempotency-Key', message: 'use de 8 a 128 caracteres: letras, números e . _ : -' }]));
   return next();
 };
 const requireIdempotency = [idempotencyKeyFormat, idempotency({ required: () => commerceError.idempotencyKeyRequired() })];
@@ -45,7 +45,7 @@ const listQuery = z.object({
   q: z.string().trim().max(80).optional(),
 });
 
-const orderIdParam = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9._:\-]+$/);
+const orderIdParam = z.string().trim().min(1).max(120).regex(/^[A-Za-z0-9._:-]+$/);
 const parseOrderId = (req: Request) => {
   const r = orderIdParam.safeParse(req.params.externalOrderId);
   if (!r.success) throw commerceError.invalidRequest([{ path: 'externalOrderId', message: 'identificador inválido' }]);

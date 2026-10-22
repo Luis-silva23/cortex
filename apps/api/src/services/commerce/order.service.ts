@@ -38,7 +38,7 @@ export const createOrderSchema = z
       .trim()
       .min(1)
       .max(120)
-      .regex(/^[A-Za-z0-9._:\-]+$/, 'use letras, números e . _ : -'),
+      .regex(/^[A-Za-z0-9._:-]+$/, 'use letras, números e . _ : -'),
     items: z
       .array(z.object({ sku: z.string().trim().min(1).max(80), quantity, unitPrice: money }).strict())
       .min(1)
