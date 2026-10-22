@@ -36,6 +36,19 @@ Evidências (capturas) vão para `docs/evidencias/2026-10-13-playwright/`. Rode 
 Tudo que o teste cria leva o prefixo `[e2e]` e é removido ao final por id/prefixo com `companyId` explícito (e, no começo,
 sobras de execução interrompida). Cada arquivo falha se houver erro de página ou resposta 5xx.
 
+## Banco novo, sem histórico (2026-10-22)
+
+A suíte foi escrita para um banco de desenvolvimento antigo, que já tinha dados. Num banco **recém-migrado** + `npm run demo:seed`, quatro arquivos falham por falta de dado, não por defeito de tela (verificado na homologação pós-Next 15, [HOMOLOGACAO_POS_NEXT15](../../docs/CORTEX/HOMOLOGACAO_POS_NEXT15.md)):
+
+| Arquivo | O que falta | Como preparar |
+|---|---|---|
+| `catalog-and-help` | artigos da Central de Ajuda publicados | `cd apps/api && npm run help:seed -- --apply --publish` (sem `--apply` é só simulação e não grava nada) |
+| `super-admin-flow` | uma licença ativa da empresa Alfa | criar uma licença `ACTIVE` para a Alfa (tela de Licenças do Super Admin) |
+| `support-contextual-buttons` | uma **OS encerrada** na matriz da Alfa (o `demo:seed` só cria a garantia em cima de uma OS encerrada que já exista) | encerrar uma OS da Alfa e rodar `npm run demo:seed` de novo |
+| `mfa-privacy-image` | a API iniciada com `REQUIRE_MFA_COMPANY_ADMIN=true` | reiniciar a API com a variável só para este arquivo |
+
+Se um desses falhar com "timeout esperando um elemento" ou "esperava > 0 e recebeu 0", confira primeiro esta tabela.
+
 ## Limite de requisições da API (causa de falha intermitente, 2026-10-14)
 
 A API limita **100 requisições por minuto por usuário** (balde `general`, bloqueio de 60 s) e todos os arquivos usam o mesmo usuário de

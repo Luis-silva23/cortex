@@ -1,8 +1,8 @@
 # Banco de dados — inventário, auditoria e fechamento (2026-10-14/15)
 
-> Complementa [DATABASE](DATABASE.md) (migrações, RLS, livro de estoque, backup). Aqui: **o que existe** (106 tabelas), **para que serve**, **o que foi conferido** e **o que falta por decisão** — sem tabela especulativa. O **Anexo A** (no fim) traz, **tabela por tabela**, domínio, finalidade (comentário do modelo), colunas, chave primária, chaves estrangeiras (com a regra ao apagar), únicos e CHECK, índices, políticas RLS e triggers, gerado do catálogo do PostgreSQL de desenvolvimento por `cd apps/api && npm run db:docs -- --write` (somente leitura; `npm run db:inventory` imprime só o resumo).
+> Complementa [DATABASE](DATABASE.md) (migrações, RLS, livro de estoque, backup). Aqui: **o que existe** (113 tabelas), **para que serve**, **o que foi conferido** e **o que falta por decisão** — sem tabela especulativa. O **Anexo A** (no fim) traz, **tabela por tabela**, domínio, finalidade (comentário do modelo), colunas, chave primária, chaves estrangeiras (com a regra ao apagar), únicos e CHECK, índices, políticas RLS e triggers, gerado do catálogo do PostgreSQL de desenvolvimento por `cd apps/api && npm run db:docs -- --write` (somente leitura; `npm run db:inventory` imprime só o resumo).
 >
-> **Pacote de revisão externa** (todos gerados desta fonte, sem segredo nem dado de cliente): [MAPA_RELACIONAMENTOS](MAPA_RELACIONAMENTOS.md) (FKs, relações sem FK, diagramas por domínio) · [RELATORIO_MIGRATIONS](RELATORIO_MIGRATIONS.md) (50 migrations: ordem, finalidade, estruturas, aplicação por ambiente, divergências) · [REVISAO_BANCO_PENDENCIAS](REVISAO_BANCO_PENDENCIAS.md) (problemas, riscos e pendências) · [DECISIONS](DECISIONS.md) (quadro "Decisões e pendências que tocam o banco de dados") · cópia do schema Prisma e das migrations com SHA-256 em [revisao-banco/](revisao-banco/LEIA-ME.md).
+> **Pacote de revisão externa** (todos gerados desta fonte, sem segredo nem dado de cliente): [MAPA_RELACIONAMENTOS](MAPA_RELACIONAMENTOS.md) (FKs, relações sem FK, diagramas por domínio) · [RELATORIO_MIGRATIONS](RELATORIO_MIGRATIONS.md) (57 migrations: ordem, finalidade, estruturas, aplicação por ambiente, divergências) · [REVISAO_BANCO_PENDENCIAS](REVISAO_BANCO_PENDENCIAS.md) (problemas, riscos e pendências) · [DECISIONS](DECISIONS.md) (quadro "Decisões e pendências que tocam o banco de dados") · cópia do schema Prisma e das migrations com SHA-256 em [revisao-banco/](revisao-banco/LEIA-ME.md).
 
 ## 1. Estado verificado (2026-10-15)
 
@@ -13,10 +13,10 @@
 | Checksums | `_prisma_migrations` × arquivos | os 50 conferem; única reconciliação: o checksum de `20261014160000` em dev/teste depois de corrigir um comentário ([RELATORIO_MIGRATIONS §4.4](RELATORIO_MIGRATIONS.md)); nenhuma aplicada que não esteja no repositório |
 | PostgreSQL | `SELECT version()` | 18.6 (Windows); CI e `docker-compose.yml` usam `postgres:18-alpine` — Linux **não** exercitado |
 | Migrações aplicadas (dev) | `prisma migrate status` | 57 migrações, **"Database schema is up to date"** |
-| Migrações aplicadas (teste) | `npm run test:integration` (aplica antes) | 50 aplicadas em `lnsystem_test` |
-| RLS | `npm run db:check-rls` | **todas as invariantes OK**: 106 tabelas com RLS habilitado **e forçado**, toda tabela com `companyId` tem policy, a role de conexão não ignora RLS |
+| Migrações aplicadas (teste) | `npm run test:integration` (aplica antes) | 57 aplicadas em `lnsystem_test` (conferido em 2026-10-22) |
+| RLS | `npm run db:check-rls` | **todas as invariantes OK**: 113 tabelas com RLS habilitado **e forçado** (conferido em 2026-10-22: `db:docs` acusa 0 sem RLS e 0 sem policy; o CI roda o verificador como papel sem posse), toda tabela com `companyId` tem policy, a role de conexão não ignora RLS |
 | Schema Prisma × banco | `prisma migrate diff --from-url <banco> --to-schema-datamodel schema.prisma` | **vazio** (0 instruções): o `schema.prisma` descreve exatamente o banco (§4); nenhuma tabela/coluna faltando ou sobrando |
-| Inventário | `npm run db:inventory` | 106 tabelas = 106 modelos do schema |
+| Inventário | `npm run db:inventory` | 113 tabelas = 113 modelos do schema (conferido em 2026-10-22 num banco recém-migrado com as 57 migrations) |
 | Produção / staging | — | **não aplicado, não verificado** (não há ambiente; ver §6) |
 
 ## 2. Inventário por domínio

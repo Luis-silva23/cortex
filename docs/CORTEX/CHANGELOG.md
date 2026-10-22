@@ -4,6 +4,18 @@ Rodada a rodada, do mais recente para o mais antigo. Cada correção de defeito 
 Até 2026-09-25 o detalhe (achado, prova, incidente) está no
 [registro de auditoria](historico/registro-de-auditoria-2026-09-14-a-25.md).
 
+## Homologação técnica pós-Next 15.5.28 (2026-10-22)
+
+Detalhe, evidência e limites em [HOMOLOGACAO_POS_NEXT15](HOMOLOGACAO_POS_NEXT15.md).
+
+| O quê |
+|---|
+| **Falha isolada de integração:** reproduzida **1 vez em 3** execuções completas com a CPU saturada (2 testes de `login-failed-audit`); passa sozinha. Causa raiz **não provada**; causa provável: `resetAuthLimits` seguia em silêncio quando o Redis do limitador não estava pronto em 5 s. Corrigido só em código de teste (espera 30 s, falha explícita, confere o balde) e o relatório do `db-role-split-check` agora traz a mensagem de cada teste reprovado. Estado final: integração completa **123 suítes / 1802 testes** aprovada (rodada final sem contenção). |
+| **E2E (Next 15):** 1ª execução 85/93 testes (7 de 11 arquivos); as 8 falhas eram dado ausente do banco novo (artigos de ajuda, licença, OS encerrada, API em modo MFA), **nenhuma regressão do Next**; os 11 arquivos passaram em execuções separadas depois do preparo, documentado em [apps/e2e/README](../../apps/e2e/README.md). |
+| **Regressão funcional/visual:** Admin Web 30 rotas e Super Admin 24 rotas sem erro de página/console e sem rolagem horizontal; login (com MFA no Super Admin), saída, 390 px, permissões por papel e isolamento entre empresas (API 403/404). Comparação com a captura de 2026-10-14 (Next 14) **qualitativa**. |
+| **Documentação:** 106/107 → 113 tabelas e 50/55 → 57 migrations em BANCO_DE_DADOS, README e CURRENT_STATE (conferido por `db:inventory`/`db:docs`); o diff gerado de MAPA, RELATORIO e REVISAO foi descartado por descrever o banco isolado. Divergência do Balcão (SPA web × APK) registrada em [APLICATIVOS](APLICATIVOS.md), sem mudar o produto. |
+| **Dependências:** `npm audit` 101 → 96 (0 críticas) com `express`, `body-parser`, `qs`, `fast-uri` e `joi` atualizados só no lock; o restante classificado por exposição em [HOMOLOGACAO_POS_NEXT15 §5](HOMOLOGACAO_POS_NEXT15.md). Pendente: `xlsx`, majors de Vite/React Router/Next. |
+
 ## Pilha real do compose executada no GitHub e endurecimento de segurança (2026-10-22)
 
 Pela primeira vez a pilha do `docker-compose.yml` foi **executada** (runner Linux do GitHub, workflow `stack-smoke.yml`: `gen-env.sh` → `docker compose up --build` com o overlay WAL → `deploy/homologacao/validar-homologacao.sh --wal` → front-ends e API respondendo 200), com banco novo e segredos aleatórios descartados no fim. **Não prova** HTTPS, domínio/DNS, cópia off-site do backup, restauração em outro host, nem produção.

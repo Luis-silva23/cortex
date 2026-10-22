@@ -68,6 +68,7 @@ A política `devices.requiredUserTypes` ([DISPOSITIVOS](DISPOSITIVOS.md)) proteg
 1. **PVD/PDV:** "PVD" é a grafia de PDV. O **PDV** é `apps/pdv-desktop` — a frente de caixa.
 2. **Existe aplicação Balcão?** **Sim, desde 2026-10-13: `apps/balcao`.** Antes existia só como fluxo (Admin Web), perfil (OPERATOR, decisão 15) e rótulo do catálogo de suporte.
 3. **Existe APK Balcão?** **Não** (nem para Mobile/TV há APK no repositório: são Expo). O Balcão é uma SPA web; empacotamento (PWA/APK/wrapper) = decisão 116.
+   - **Divergência registrada (2026-10-22), sem alteração de produto:** a descrição recebida do dono é "Balcão = APK Android"; o código é `apps/balcao` (Vite + React Router, servido por nginx — nenhuma configuração Android, Capacitor ou Expo, nenhum APK gerado). Os Android do repositório são `mobile` (Equipe) e `tv` (Painel), ambos Expo. Nada foi mudado para "casar" as duas versões: a escolha entre manter web, PWA (recomendado na decisão 116), wrapper ou APK é do dono e continua **AGUARDANDO DECISÃO**. Até lá, os documentos de implantação tratam o Balcão como aplicação web.
 4. **`apps/pdv-desktop` é o Balcão?** **Não.** É o PDV (caixa).
 5. **Código de Balcão misturado ao PDV?** **Não** — separação provada por teste.
 6. **Compartilhado:** `packages/shared` (tipos, validadores zod, `utils/{token,password,email,secret-box,validation,installments,server-url}`) e `packages/database` (Prisma, só na API). Sem biblioteca de UI compartilhada. PDV e Balcão importam os `.ts` do shared por alias do Vite (o `.js` ao lado é CommonJS).
