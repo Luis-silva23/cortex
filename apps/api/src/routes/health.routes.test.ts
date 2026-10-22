@@ -11,7 +11,7 @@ jest.mock('../config/redis', () => ({ redis: { ping: (...args: unknown[]) => pin
 jest.mock('../config/queue', () => ({ workersRunning: () => workersRunning() }));
 jest.mock('../config/shutdown', () => ({ isShuttingDown: () => draining }));
 
-import healthRoutes from './health.routes';
+import healthRoutes, { __resetHealthCache } from './health.routes';
 
 const app = express();
 app.use('/health', healthRoutes);
@@ -77,5 +77,50 @@ describe('sondas de saúde', () => {
     expect(h.status).toBe(503);
     expect(h.body.message).toBe('DRAINING');
     expect((await request(app).get('/health/live')).status).toBe(200);
+  });
+});
+
+describe('proteção contra abuso (single-flight + cache curto)', () => {
+  afterEach(() => {
+    delete process.env.HEALTH_CACHE_MS;
+    __resetHealthCache();
+  });
+
+  it('100 chamadas simultâneas fazem UMA ida ao banco e ao Redis', async () => {
+    let release!: () => void;
+    queryRaw.mockImplementation(() => new Promise((r) => { release = () => r([{ '?column?': 1 }]); }));
+    __resetHealthCache();
+    queryRaw.mockClear();
+    ping.mockClear();
+    const burst = Promise.all(Array.from({ length: 100 }, () => request(app).get('/health/ready')));
+    // espera a primeira verificação começar e o restante da rajada chegar enquanto ela ainda está pendente
+    for (let i = 0; i < 100 && queryRaw.mock.calls.length === 0; i++) await new Promise((r) => setTimeout(r, 20));
+    await new Promise((r) => setTimeout(r, 400));
+    release();
+    const all = await burst;
+    expect(all.every((r) => r.status === 200)).toBe(true);
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    expect(ping).toHaveBeenCalledTimes(1);
+  }, 15000);
+
+  it('com HEALTH_CACHE_MS ligado, chamadas seguidas reaproveitam o resultado; expirado, verifica de novo', async () => {
+    process.env.HEALTH_CACHE_MS = '300';
+    __resetHealthCache();
+    queryRaw.mockClear();
+    await request(app).get('/health/ready');
+    await request(app).get('/health/ready');
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+    await new Promise((r) => setTimeout(r, 350));
+    await request(app).get('/health/ready');
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('a queda aparece na sonda assim que o cache expira (não fica "verde" para sempre)', async () => {
+    process.env.HEALTH_CACHE_MS = '100';
+    __resetHealthCache();
+    expect((await request(app).get('/health/ready')).status).toBe(200);
+    queryRaw.mockRejectedValue(new Error('down'));
+    await new Promise((r) => setTimeout(r, 150));
+    expect((await request(app).get('/health/ready')).status).toBe(503);
   });
 });

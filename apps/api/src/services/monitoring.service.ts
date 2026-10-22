@@ -5,7 +5,7 @@ import observabilityService from './observability.service';
 import { DEVICE_ONLINE_WINDOW_MS, HealthStatus, Threshold, devicesStatus, level, worst } from './health-status';
 import monitoringThresholds, { EffectiveThresholds, MonitoringMetric } from './monitoring-thresholds.service';
 import { recordAlertEvent } from './monitoring-central/alert-events';
-import { notifyAlert } from './monitoring-central/notifier';
+import { notifyAlert as notifyAlertBase } from './monitoring-central/notifier';
 import { severityRank } from './monitoring-central/model';
 
 // Janelas do histórico: nunca carrega dado bruto ilimitado — cada faixa tem um tamanho de balde (≤ 360 pontos).
@@ -367,12 +367,21 @@ export class MonitoringService {
    */
   async applyAlert(c: AlertCondition, now: Date): Promise<AlertOutcome> {
     if (c.status === 'NO_DATA') return 'noop';
+    // alerta EXTERNAL já foi avisado pelo próprio monitor independente: registrar aqui NÃO pode gerar uma segunda mensagem
+    const notifyAlert = (a: Parameters<typeof notifyAlertBase>[0], t: Parameters<typeof notifyAlertBase>[1]) => (c.source === 'EXTERNAL' ? Promise.resolve() : notifyAlertBase(a, t));
     const key = { companyId: c.companyId, branchId: c.branchId, deviceId: c.deviceId, type: c.type };
     const open = await prisma.monitoringAlert.findFirst({ where: { ...key, endedAt: null } });
     if (c.status === 'NORMAL') {
       if (!open) return 'noop';
       const closed = await prisma.monitoringAlert.updateMany({ where: { id: open.id, endedAt: null }, data: { endedAt: now, lastSeenAt: now, value: c.value } });
-      if (closed.count === 1) await recordAlertEvent({ alertId: open.id, companyId: open.companyId, kind: 'AUTO_RESOLVED', note: 'a condição voltou ao normal' });
+      if (closed.count === 1) {
+        await recordAlertEvent({ alertId: open.id, companyId: open.companyId, kind: 'AUTO_RESOLVED', note: 'a condição voltou ao normal' });
+        // aviso de RECUPERAÇÃO: só vai aos canais que haviam avisado este alerta (decidido no notifier); nunca bloqueia nem lança
+        void notifyAlert(
+          { id: open.id, type: open.type, severity: open.severity, companyId: open.companyId, branchId: open.branchId, deviceId: open.deviceId, detail: open.detail, value: c.value, threshold: null, startedAt: open.startedAt, endedAt: now },
+          'RECOVERED'
+        );
+      }
       return 'closed';
     }
     const threshold = c.threshold ? (c.status === 'CRITICAL' || c.status === 'OFFLINE' ? c.threshold.critical : c.threshold.attention) : null;
@@ -433,7 +442,8 @@ export class MonitoringService {
 const ALERT_REOPEN_COOLDOWN_MS = 10 * 60_000;
 export type AlertOutcome = 'opened' | 'reopened' | 'updated' | 'closed' | 'noop';
 export type AlertCondition = {
-  source: 'BRANCH' | 'DEVICE' | 'CENTRAL' | 'COMPANY';
+  /** EXTERNAL = medido pelo monitor independente (apps/monitor), que JÁ avisa por conta própria: o painel registra, mas não notifica de novo. */
+  source: 'BRANCH' | 'DEVICE' | 'CENTRAL' | 'COMPANY' | 'EXTERNAL';
   companyId: string | null;
   branchId: string | null;
   deviceId: string | null;

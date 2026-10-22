@@ -4,6 +4,20 @@ Rodada a rodada, do mais recente para o mais antigo. Cada correção de defeito 
 Até 2026-09-25 o detalhe (achado, prova, incidente) está no
 [registro de auditoria](historico/registro-de-auditoria-2026-09-14-a-25.md).
 
+## Organização, infraestrutura, alertas e segurança (2026-10-22)
+
+Detalhe em [MONITORAMENTO_EXTERNO](MONITORAMENTO_EXTERNO.md), [ALERTAS_CANAIS](ALERTAS_CANAIS.md) e [ORGANIZACAO_GIT_E_BACKUP](ORGANIZACAO_GIT_E_BACKUP.md).
+
+| O quê |
+|---|
+| **Backup datado** fora das pastas de trabalho (bundles Git + árvores + SHA-256, restauração verificada); **pasta oficial = CORTEX-publicacao**; a original ficou intocada; risco do GitHub Desktop documentado. |
+| **Canais de alerta SMS e WhatsApp** (oficiais: Twilio, Cloud API da Meta) ao lado do e-mail: núcleo único de limites/deduplicação/disjuntor/alternância, recuperação só onde houve aviso, nada de texto/número em log. **Nenhum provedor real contactado, nenhuma mensagem real enviada.** |
+| **Monitor independente** `apps/monitor` (42 testes + fumaça de processo real): falhas seguidas, lentidão, taxa de erros, agrupamento, proteção contra rede própria fora, avisos com retentativas, estado persistido. **Não implantado**: sem monitoramento 24/7 real. |
+| **API:** entrada assinada `/monitor/v1/ingest` (desligada sem segredo), alertas `EXTERNAL_*` sem aviso duplicado, `EXTERNAL_MONITOR_STALE`, `SMS/WHATSAPP_DELIVERY_FAILING`, sondas de saúde com cache curto e single-flight. `request-signature` movido para `packages/shared` (fonte única). |
+| **Super Admin › Infraestrutura** (menu principal): serviços, latência/p95, disponibilidade, volume, 5xx e códigos HTTP, backup, canais, incidentes técnicos × operacionais; Linha/Colunas; filtros. Aba antiga renomeada "Servidor e filas". |
+| **Defeito corrigido no caminho:** o filtro de serviço casava `api` com incidentes de `api_gateway` (prefixo); agora o tipo é casado por inteiro (teste). |
+| **Figma:** a conexão está autenticada (plano Starter, assento View), mas **nenhum arquivo/URL do Figma existe no repositório nem foi informado** — nada foi consultado; os tokens e componentes reaproveitados são os do próprio repositório. |
+
 ## Cloudflare: Admin Web e Super Admin publicados no edge (conta temporária) e validados com a API real em HTTPS (2026-10-22)
 
 Detalhe em [CLOUDFLARE §10](CLOUDFLARE.md).

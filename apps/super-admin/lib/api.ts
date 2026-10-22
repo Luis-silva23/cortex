@@ -213,10 +213,21 @@ export interface AlertsQuery {
   page?: number;
   limit?: number;
 }
+export interface InfrastructureQuery {
+  range?: CentralRange;
+  /** Chave do serviço (ex.: DATABASE, EXT_MINHA_API). */
+  service?: string;
+  severity?: string;
+  /** OPEN | RESOLVED */
+  state?: string;
+  /** technical | operational */
+  scope?: string;
+}
 const clean = (o: object) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null && v !== ''));
 
 export const centralApi = {
   meta: () => api.get('/monitoring/central/meta'),
+  infrastructure: (q: InfrastructureQuery) => api.get('/monitoring/central/infrastructure', { params: clean(q) }),
   overview: (range: CentralRange) => api.get('/monitoring/central/overview', { params: { range } }),
   series: (range: CentralRange) => api.get('/monitoring/central/series', { params: { range } }),
   companies: (q: CompaniesQuery) => api.get('/monitoring/central/companies', { params: clean(q) }),

@@ -107,8 +107,9 @@ describe('sendEmail (rede simulada: nenhum e-mail real é enviado)', () => {
 
   it('falha do provedor: registra FALHA mascarada, não lança, e 3 falhas seguidas abrem o disjuntor', async () => {
     const fetchImpl = jest.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({ message: 'limite da conta (re_testkey_1234567890) para ops1@exemplo.test' }) } as Response);
+    const noSleep = async () => {};
     for (let i = 0; i < 3; i++) {
-      const r = await sendEmail({ ...input, dedupeKey: `falha-${i}` }, { env: FULL, now, fetchImpl: fetchImpl as unknown as typeof fetch });
+      const r = await sendEmail({ ...input, dedupeKey: `falha-${i}` }, { env: FULL, now, fetchImpl: fetchImpl as unknown as typeof fetch, sleep: noSleep });
       expect(r.status).toBe('FAILED');
     }
     const failed = (recordDelivery as jest.Mock).mock.calls.map((c) => c[0]).filter((d) => d.status === 'FAILED');
@@ -119,15 +120,16 @@ describe('sendEmail (rede simulada: nenhum e-mail real é enviado)', () => {
       expect(d.error).not.toContain('ops1@exemplo.test');
     }
     expect(breakerState().openUntil).toBeGreaterThan(now.getTime());
-    const after = await sendEmail({ ...input, dedupeKey: 'depois' }, { env: FULL, now, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const after = await sendEmail({ ...input, dedupeKey: 'depois' }, { env: FULL, now, fetchImpl: fetchImpl as unknown as typeof fetch, sleep: noSleep });
     expect(after).toEqual({ status: 'SUPPRESSED', reason: 'BREAKER' });
-    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(fetchImpl).toHaveBeenCalledTimes(6); // 3 envios × 2 tentativas (429 é falha repetível); com o disjuntor aberto, nenhuma chamada nova
   });
 
   it('rede que explode (timeout) também não lança', async () => {
     const fetchImpl = jest.fn().mockRejectedValue(new Error('network timeout'));
-    const r = await sendEmail({ ...input, dedupeKey: 'net' }, { env: FULL, now, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const r = await sendEmail({ ...input, dedupeKey: 'net' }, { env: FULL, now, fetchImpl: fetchImpl as unknown as typeof fetch, sleep: async () => {} });
     expect(r.status).toBe('FAILED');
+    expect(fetchImpl).toHaveBeenCalledTimes(2); // falha de rede é repetível: 2 tentativas, depois desiste sem lançar
   });
 });
 

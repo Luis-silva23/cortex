@@ -54,16 +54,16 @@ describe('notifyAlert', () => {
     (sendEmail as jest.Mock).mockResolvedValue({ status: 'SENT' });
     await notifyAlert(alert({ companyId: 'c1' }), 'OPENED', FULL);
     expect((sendEmail as jest.Mock).mock.calls[0][0]).toMatchObject({ dedupeKey: 'alert:DATABASE_DEGRADED:c1:-:-:CRITICAL', alertId: 'a1' });
-    expect(recordAlertEvent).toHaveBeenCalledWith({ alertId: 'a1', companyId: 'c1', kind: 'NOTIFIED', note: 'e-mail de alerta enviado' });
+    expect(recordAlertEvent).toHaveBeenCalledWith({ alertId: 'a1', companyId: 'c1', kind: 'NOTIFIED', note: 'e-mail de alerta enviado (aceito pelo provedor)' });
   });
 
   it('suprimido por limite ou repetição: registra o motivo; falha de entrega: registra a falha; nunca lança', async () => {
     (sendEmail as jest.Mock).mockResolvedValueOnce({ status: 'SUPPRESSED', reason: 'HOUR_CAP' });
     await notifyAlert(alert(), 'OPENED', FULL);
-    expect(recordAlertEvent).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'NOTIFICATION_SUPPRESSED', note: 'HOUR_CAP' }));
+    expect(recordAlertEvent).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'NOTIFICATION_SUPPRESSED', note: 'e-mail: HOUR_CAP' }));
     (sendEmail as jest.Mock).mockResolvedValueOnce({ status: 'FAILED', reason: 'http_429' });
     await notifyAlert(alert(), 'OPENED', FULL);
-    expect(recordAlertEvent).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'NOTIFICATION_FAILED', note: 'http_429' }));
+    expect(recordAlertEvent).toHaveBeenLastCalledWith(expect.objectContaining({ kind: 'NOTIFICATION_FAILED', note: 'e-mail: http_429' }));
     (sendEmail as jest.Mock).mockRejectedValueOnce(new Error('explodiu'));
     await expect(notifyAlert(alert(), 'OPENED', FULL)).resolves.toBeUndefined();
   });

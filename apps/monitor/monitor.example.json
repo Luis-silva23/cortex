@@ -1,0 +1,47 @@
+{
+  "monitorId": "monitor-regiao-b",
+  "location": "Provedor B · região B (fora da infraestrutura monitorada)",
+  "intervalSec": 30,
+  "failThreshold": 3,
+  "recoverThreshold": 2,
+  "quickRetries": 2,
+  "quickRetryDelayMs": 3000,
+  "latencyWindow": 5,
+  "latencyStreak": 3,
+  "errorRateWindow": 20,
+  "errorRatePct": 25,
+  "reminderMinutes": 60,
+  "maxReminders": 6,
+  "controlUrls": ["https://www.cloudflare.com/cdn-cgi/trace", "https://www.google.com/generate_204"],
+  "panelUrl": "https://painel.exemplo.com.br/dashboard/infraestrutura",
+  "ingestUrl": "https://api.exemplo.com.br/monitor/v1/ingest",
+  "notify": {
+    "criticalChannels": ["EMAIL", "SMS", "WHATSAPP"],
+    "attentionChannels": ["EMAIL"],
+    "maxPerHourPerChannel": 6,
+    "maxAttempts": 5,
+    "retryDelaysSec": [60, 120, 300, 600]
+  },
+  "targets": [
+    {
+      "id": "site",
+      "name": "Site / painel (página inicial)",
+      "url": "https://painel.exemplo.com.br/",
+      "expectStatus": [200],
+      "severity": "CRITICAL",
+      "latencyWarnMs": 1500,
+      "latencyCritMs": 4000
+    },
+    {
+      "id": "api",
+      "name": "API (saúde: banco, Redis e workers)",
+      "url": "https://api.exemplo.com.br/api/health/ready",
+      "expectStatus": [200],
+      "bodyIncludes": "ready",
+      "severity": "CRITICAL",
+      "latencyWarnMs": 1500,
+      "latencyCritMs": 4000,
+      "parent": "site"
+    }
+  ]
+}

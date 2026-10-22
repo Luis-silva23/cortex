@@ -7,7 +7,7 @@ import { prisma } from '@ln-system/database';
 import { logger } from '../../utils/logger';
 import { asPlatform } from './settings.service';
 
-export type DeliveryChannel = 'EMAIL' | 'SENTRY';
+export type DeliveryChannel = 'EMAIL' | 'SENTRY' | 'SMS' | 'WHATSAPP';
 export type DeliveryStatus = 'SENT' | 'FAILED' | 'SUPPRESSED';
 
 export interface DeliveryInput {

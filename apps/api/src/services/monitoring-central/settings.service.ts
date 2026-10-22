@@ -31,6 +31,14 @@ export interface MonitoringLimits {
   sentryMaxPerDay: number;
   sentrySampleRate: number;
   sentryDedupeMinutes: number;
+  smsMaxPerHour: number;
+  smsMaxPerDay: number;
+  smsMaxPerMonth: number;
+  smsDedupeMinutes: number;
+  whatsappMaxPerHour: number;
+  whatsappMaxPerDay: number;
+  whatsappMaxPerMonth: number;
+  whatsappDedupeMinutes: number;
   /** Intervalo entre amostras de saúde (minutos). */
   sampleMinutes: number;
   samplesMaxPerDay: number;
@@ -38,6 +46,8 @@ export interface MonitoringLimits {
 
 export interface MonitoringToggles {
   emailNotifications: boolean;
+  smsNotifications: boolean;
+  whatsappNotifications: boolean;
   sentry: boolean;
   sampling: boolean;
 }
@@ -71,6 +81,15 @@ export function envLimits(env: NodeJS.ProcessEnv = process.env): MonitoringLimit
     sentryMaxPerDay: num(env, 'SENTRY_MAX_EVENTS_PER_DAY', 200, 0, 1_000_000),
     sentrySampleRate: num(env, 'SENTRY_SAMPLE_RATE', 0.25, 0, 1),
     sentryDedupeMinutes: num(env, 'SENTRY_DEDUPE_MINUTES', 5, 1, 1440),
+    // SMS e WhatsApp custam por mensagem: padrões bem abaixo do e-mail (só queda crítica) e o ambiente continua sendo o teto
+    smsMaxPerHour: num(env, 'ALERT_SMS_MAX_PER_HOUR', 3, 0, 1000),
+    smsMaxPerDay: num(env, 'ALERT_SMS_MAX_PER_DAY', 10, 0, 10_000),
+    smsMaxPerMonth: num(env, 'ALERT_SMS_MAX_PER_MONTH', 100, 0, 1_000_000),
+    smsDedupeMinutes: num(env, 'ALERT_SMS_DEDUPE_MINUTES', 120, 1, 1440),
+    whatsappMaxPerHour: num(env, 'ALERT_WHATSAPP_MAX_PER_HOUR', 3, 0, 1000),
+    whatsappMaxPerDay: num(env, 'ALERT_WHATSAPP_MAX_PER_DAY', 10, 0, 10_000),
+    whatsappMaxPerMonth: num(env, 'ALERT_WHATSAPP_MAX_PER_MONTH', 100, 0, 1_000_000),
+    whatsappDedupeMinutes: num(env, 'ALERT_WHATSAPP_DEDUPE_MINUTES', 120, 1, 1440),
     sampleMinutes: num(env, 'MONITORING_SAMPLE_MINUTES', 5, 1, 60),
     samplesMaxPerDay: num(env, 'MONITORING_SAMPLES_MAX_PER_DAY', 4000, 0, 1_000_000),
   };
@@ -85,7 +104,7 @@ export function envRetention(env: NodeJS.ProcessEnv = process.env): MonitoringRe
 }
 
 const LIMIT_KEYS = Object.keys(envLimits({})) as Array<keyof MonitoringLimits>;
-const TOGGLE_KEYS: Array<keyof MonitoringToggles> = ['emailNotifications', 'sentry', 'sampling'];
+const TOGGLE_KEYS: Array<keyof MonitoringToggles> = ['emailNotifications', 'smsNotifications', 'whatsappNotifications', 'sentry', 'sampling'];
 
 /**
  * Efetivo = ambiente restringido pelo ajuste. Chaves de TETO (máximos e taxa de amostragem) usam o MENOR valor; o intervalo de coleta usa o MAIOR (coletar menos
@@ -104,7 +123,7 @@ export function resolveEffective(env: NodeJS.ProcessEnv, overrides: MonitoringOv
       overridden.push(key);
     }
   }
-  const toggles: MonitoringToggles = { emailNotifications: true, sentry: true, sampling: true };
+  const toggles: MonitoringToggles = { emailNotifications: true, smsNotifications: true, whatsappNotifications: true, sentry: true, sampling: true };
   for (const key of TOGGLE_KEYS) {
     if (overrides?.toggles?.[key] === false) {
       toggles[key] = false;

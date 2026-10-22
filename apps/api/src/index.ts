@@ -14,6 +14,7 @@ import swaggerUi from 'swagger-ui-express';
 import routes from './routes';
 import commerceRoutes from './routes/commerce.routes';
 import integrationsRoutes from './routes/integrations.routes';
+import monitorIngestRoutes from './routes/monitor-ingest.routes';
 import { registerSandboxProviderIfAllowed } from './services/integrations/sandbox.provider';
 import { errorHandler } from './middleware/errorHandler';
 import { requireHttps } from './middleware/https';
@@ -112,6 +113,8 @@ app.use('/commerce/v1', commerceRoutes);
 // INTEGRATION GATEWAY (Fase 3): entrada de provedores por webhook assinado. Mesma lógica de isolamento da Commerce API (superfície
 // própria, parser de 256 KB, sem CORS, sem JWT de usuário, limite por canal e por IP em falha de assinatura).
 app.use('/integrations/v1', integrationsRoutes);
+// ENTRADA DO MONITOR INDEPENDENTE (apps/monitor): superfície de máquina própria (HMAC com segredo exclusivo, 256 KB, sem CORS nem JWT). Desligada sem MONITOR_INGEST_SECRET.
+app.use('/monitor/v1', monitorIngestRoutes);
 
 // ACHADO DE AUDITORIA (PRE-PRODUCTION HARDENING, Infraestrutura): em
 // produção, `origin` estava hardcoded para um domínio placeholder

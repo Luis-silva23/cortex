@@ -17,6 +17,7 @@ import { level, worst, type HealthStatus } from '../health-status';
 import { asPlatform, getEffective, rawQuery } from './settings.service';
 import { readBackupStatus } from './backup-status';
 import { deliverySummary } from './deliveries';
+import { externalMonitorState, staleMinutes } from './external-monitor.service';
 import { classifyIntegrations, integrationSummary } from './model';
 import { companiesSnapshot, loadIntegrationInputs } from './overview.service';
 
@@ -185,6 +186,16 @@ export async function runCentralEvaluation(now = new Date()) {
     const [emailD, sentryD] = await Promise.all([deliverySummary('EMAIL', now), deliverySummary('SENTRY', now)]);
     const failing = (n: number): HealthStatus => (n >= 5 ? 'CRITICAL' : n >= 3 ? 'ATTENTION' : 'NORMAL');
     if (emailD.sent.month > 0 || emailD.failed24h > 0) conditions.push(cond({ type: 'EMAIL_DELIVERY_FAILING', metric: 'emailFailed24h', value: emailD.failed24h, threshold: { attention: 3, critical: 5 }, status: failing(emailD.failed24h), detail: `${emailD.failed24h} falha(s) de e-mail nas últimas 24 h` }));
+    const [smsD, waD] = await Promise.all([deliverySummary('SMS', now), deliverySummary('WHATSAPP', now)]);
+    if (smsD.sent.month > 0 || smsD.failed24h > 0) conditions.push(cond({ type: 'SMS_DELIVERY_FAILING', metric: 'smsFailed24h', value: smsD.failed24h, threshold: { attention: 3, critical: 5 }, status: failing(smsD.failed24h), detail: `${smsD.failed24h} falha(s) de SMS nas últimas 24 h` }));
+    if (waD.sent.month > 0 || waD.failed24h > 0) conditions.push(cond({ type: 'WHATSAPP_DELIVERY_FAILING', metric: 'whatsappFailed24h', value: waD.failed24h, threshold: { attention: 3, critical: 5 }, status: failing(waD.failed24h), detail: `${waD.failed24h} falha(s) de WhatsApp nas últimas 24 h` }));
+    // o monitor externo é a única visão "de fora": se ele já reportou alguma vez e calou, o painel avisa (a ausência de relato NÃO é "tudo bem")
+    const ext = await externalMonitorState(now);
+    if (ext.enabled && ext.everReported) {
+      const age = ext.ageMinutes ?? 0;
+      const limit = staleMinutes();
+      conditions.push(cond({ type: 'EXTERNAL_MONITOR_STALE', metric: 'externalMonitorAgeMin', value: age, threshold: { attention: limit, critical: limit * 3 }, status: age >= limit * 3 ? 'CRITICAL' : age >= limit ? 'ATTENTION' : 'NORMAL', detail: `monitor externo sem relatar há ${age} min` }));
+    }
     if (sentryD.sent.month > 0 || sentryD.failed24h > 0) conditions.push(cond({ type: 'SENTRY_DELIVERY_FAILING', metric: 'sentryFailed24h', value: sentryD.failed24h, threshold: { attention: 3, critical: 5 }, status: failing(sentryD.failed24h), detail: `${sentryD.failed24h} falha(s) de envio ao Sentry nas últimas 24 h` }));
 
     // integrações por empresa (conexão testada e falha de entrega): ERRO → crítico; degradada → atenção

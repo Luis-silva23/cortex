@@ -26,10 +26,10 @@ export function StatusPill({ status, label, testId }: { status: string; label?: 
 }
 
 /** Seletor de período (botões com `aria-pressed`). Mudar o período não muda as permissões: o backend continua decidindo o que cada pedido pode ver. */
-export function RangeSelector({ value, onChange }: { value: CentralRange; onChange: (r: CentralRange) => void }) {
+export function RangeSelector({ value, onChange, options = RANGE_OPTIONS }: { value: CentralRange; onChange: (r: CentralRange) => void; options?: typeof RANGE_OPTIONS }) {
   return (
     <div role="group" aria-label="Período" className="flex flex-wrap gap-1" data-testid="range-selector">
-      {RANGE_OPTIONS.map((o) => (
+      {options.map((o) => (
         <Button key={o.key} type="button" size="sm" variant={value === o.key ? 'default' : 'outline'} aria-pressed={value === o.key} data-testid={`range-${o.key}`} onClick={() => onChange(o.key)}>
           {o.label}
         </Button>

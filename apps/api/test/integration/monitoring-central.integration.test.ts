@@ -4,6 +4,8 @@ import * as path from 'path';
 import express from 'express';
 import request from 'supertest';
 import routes from '../../src/routes';
+import monitorIngestRoutes from '../../src/routes/monitor-ingest.routes';
+import { signRequest } from '@ln-system/shared/utils/request-signature';
 import { errorHandler } from '../../src/middleware/errorHandler';
 import { jobQueue } from '../../src/config/queue';
 import { advancedRateLimiter } from '../../src/middlewares/advancedRateLimit';
@@ -92,6 +94,7 @@ describe('Central de Monitoramento', () => {
     B = await createFixture(`mc${stamp}b`);
     C = await createFixture(`mc${stamp}c`);
     app = express();
+    app.use('/monitor/v1', monitorIngestRoutes); // antes do parser global, como em produção (o corpo cru é assinado)
     app.use(express.json());
     app.use('/api', routes);
     app.use(errorHandler);
@@ -134,8 +137,9 @@ describe('Central de Monitoramento', () => {
     auditSpy?.mockRestore();
     __resetSettingsCache();
     // alertas e histórico criados aqui: por id (e os do coletor, marcados pelo instante sintético)
-    const synthetic = await bypass<any[]>(() => db.monitoringAlert.findMany({ where: { startedAt: syntheticNow }, select: { id: true } }));
+    const synthetic = await bypass<any[]>(() => db.monitoringAlert.findMany({ where: { OR: [{ startedAt: syntheticNow }, { type: { startsWith: `EXTERNAL_ITEST${stamp}` } }, { type: `SERVER_ITEST_${stamp}` }] }, select: { id: true } }));
     for (const s of synthetic) alertIds.add(s.id);
+    await purge((tx) => tx.serviceHealthSample.deleteMany({ where: { id: { not: '' }, service: { startsWith: `EXT_ITEST${stamp}` } } }));
     const ids = [...alertIds];
     if (ids.length) {
       await purge((tx) => tx.$executeRaw`DELETE FROM monitoring_alert_events WHERE "alertId" = ANY(${ids}::text[])`);
@@ -165,6 +169,7 @@ describe('Central de Monitoramento', () => {
       ['get', '/overview', {}],
       ['get', '/series', {}],
       ['get', '/meta', {}],
+      ['get', '/infrastructure', {}],
       ['get', '/companies', {}],
       ['get', `/companies/${UUID0}`, {}],
       ['get', '/alert-center', {}],
@@ -201,6 +206,139 @@ describe('Central de Monitoramento', () => {
       expect(other.status).toBe(403);
       expect((await request(app).get('/api/monitoring/central/alerts').set(bearer(saToken))).status).toBe(200);
       expect((await request(app).get('/api/monitoring/central/alerts').set(bearer(adminA))).status).toBe(403);
+    });
+  });
+
+  // ---------------------------------------------------------------------------------------------------------------------------
+  describe('Infraestrutura + entrada do monitor independente', () => {
+    const INGEST_SECRET = `ingest-${stamp}-`.padEnd(40, 'x');
+    const target = `itest${stamp}`;
+    const svc = `EXT_ITEST${stamp}`;
+    const incType = `EXTERNAL_ITEST${stamp}_DOWN`;
+    const send = (payload: object, secret = INGEST_SECRET) => {
+      const raw = JSON.stringify(payload);
+      const ts = Math.floor(Date.now() / 1000);
+      const sig = signRequest(secret, { timestampSec: ts, method: 'POST', path: '/monitor/v1/ingest', rawBody: raw });
+      return request(app).post('/monitor/v1/ingest').set('Content-Type', 'application/json').set('X-Cortex-Timestamp', String(ts)).set('X-Cortex-Signature', sig).send(raw);
+    };
+    const t0 = Date.now(); // fixo: o reenvio do MESMO lote precisa carregar os MESMOS instantes
+    const body = (over: Record<string, unknown> = {}) => ({
+      monitorId: `mon-${stamp}`,
+      location: 'teste de integração',
+      sentAt: Date.now(),
+      targets: [{ id: target, name: 'Alvo de teste', status: 'DOWN' }],
+      results: [
+        { target, at: t0 - 60_000, ok: true, httpStatus: 200, latencyMs: 80, failure: null },
+        { target, at: t0 - 30_000, ok: false, httpStatus: 503, latencyMs: 400, failure: 'http' },
+      ],
+      incidents: [{ id: `inc-${stamp}-1`, target, kind: 'DOWN', type: incType, severity: 'CRITICAL', startedAt: t0 - 30_000, endedAt: null, detail: '3 verificações seguidas sem sucesso', cause: 'resposta HTTP 503', groupedUnder: null, notifiedChannels: [] }],
+      ...over,
+    });
+
+    it('SEM o segredo configurado a entrada está desligada (503) e nada é gravado', async () => {
+      delete process.env.MONITOR_INGEST_SECRET;
+      const res = await send(body());
+      expect(res.status).toBe(503);
+      expect(await bypass<number>(() => db.serviceHealthSample.count({ where: { service: svc } }))).toBe(0);
+    });
+
+    it('assinatura errada: 401 e nada é gravado; corpo fora do formato: 400', async () => {
+      process.env.MONITOR_INGEST_SECRET = INGEST_SECRET;
+      expect((await send(body(), 'z'.repeat(40))).status).toBe(401);
+      expect((await send(body({ results: [{ target: "x'; DROP TABLE y;--", at: 1, ok: true, httpStatus: 200, latencyMs: 1, failure: null }] }))).status).toBe(400);
+      expect(await bypass<number>(() => db.serviceHealthSample.count({ where: { service: svc } }))).toBe(0);
+    });
+
+    it('entrada assinada grava amostras EXT_ e abre UM alerta EXTERNAL de plataforma — sem aviso duplicado; reenviar não duplica nada', async () => {
+      process.env.MONITOR_INGEST_SECRET = INGEST_SECRET;
+      const first = await send(body());
+      expect(first.status).toBe(200);
+      expect(first.body).toMatchObject({ accepted: true, samples: 2 });
+      expect(first.body.incidents).toEqual({ opened: 1 });
+      const again = await send(body());
+      expect(again.status).toBe(200);
+      expect(again.body.samples).toBe(0);
+      expect(again.body.incidents).toEqual({ updated: 1 });
+      expect(await bypass<number>(() => db.serviceHealthSample.count({ where: { service: svc } }))).toBe(2);
+      const rows = await bypass<any[]>(() => db.monitoringAlert.findMany({ where: { type: incType } }));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ source: 'EXTERNAL', companyId: null, severity: 'CRITICAL', endedAt: null });
+      // o monitor já avisou: o painel NÃO gera entrega própria para este alerta
+      expect(await bypass<number>(() => db.externalDelivery.count({ where: { alertId: rows[0].id } }))).toBe(0);
+    });
+
+    it('Infraestrutura (Super Admin): serviço medido de fora aparece com disponibilidade real; o incidente é TÉCNICO; sem segredo na resposta', async () => {
+      const res = await get(`/infrastructure?range=1h&service=${svc}`);
+      expect(res.status).toBe(200);
+      expect(res.body.services).toHaveLength(1);
+      expect(res.body.services[0]).toMatchObject({ key: svc, external: true, samples: 2, failures: 1, availabilityPct: 50, source: 'external-monitor' });
+      expect(res.body.series.availability[svc].length).toBeGreaterThan(0);
+      expect(res.body.series.latency[svc].length).toBeGreaterThan(0);
+      expect(res.body.incidents.map((i: any) => i.type)).toEqual([incType]);
+      expect(res.body.incidents[0]).toMatchObject({ scope: 'technical', category: 'EXTERNAL', status: 'OPEN', recovery: null });
+      expect(res.body.incidents[0].durationMs).toBeGreaterThan(0);
+      expect(res.body.externalMonitor.state).toBe('ACTIVE');
+      // nomes de variáveis pendentes (ex.: TWILIO_API_KEY_SECRET) aparecem de propósito; VALORES de segredo, token ou senha nunca
+      expect(JSON.stringify(res.body)).not.toContain(INGEST_SECRET);
+      expect(JSON.stringify(res.body)).not.toMatch(/re_[A-Za-z0-9]{8}|Bearer |"password"|https?:\/\//i);
+    });
+
+    it('técnico × operacional: alerta de empresa NÃO entra no técnico, o de plataforma NÃO entra no operacional, e nenhum registro é duplicado', async () => {
+      const techType = `SERVER_ITEST_${stamp}`;
+      await openAlert(platformAlert({ source: 'CENTRAL', companyId: null, type: techType, metric: 'cpuPct', detail: 'CPU de teste' }) as any);
+      const companyAlertId = await openAlert(platformAlert({ type: 'INTEGRATION_HEALTH', detail: 'Canal de teste da empresa A' }) as any);
+      const tech = await get('/infrastructure?range=1h&scope=technical&state=OPEN');
+      const oper = await get('/infrastructure?range=1h&scope=operational&state=OPEN');
+      const techTypes = tech.body.incidents.map((i: any) => i.type);
+      expect(techTypes).toEqual(expect.arrayContaining([techType, incType]));
+      expect(tech.body.incidents.every((i: any) => i.scope === 'technical' && i.companyId === null)).toBe(true);
+      expect(oper.body.incidents.every((i: any) => i.scope === 'operational')).toBe(true);
+      expect(oper.body.incidents.map((i: any) => i.id)).toContain(companyAlertId);
+      expect(oper.body.incidents.find((i: any) => i.id === companyAlertId)?.companyName).toBeTruthy();
+      const ids = [...tech.body.incidents, ...oper.body.incidents].map((i: any) => i.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      const all = await get('/infrastructure?range=1h');
+      expect(all.body.alerts.technical.open).toBeGreaterThanOrEqual(2);
+      expect(all.body.alerts.operational.open).toBeGreaterThanOrEqual(1);
+    });
+
+    it('filtros: gravidade e estado restringem; valores fora da lista fechada são 400', async () => {
+      const crit = await get(`/infrastructure?range=1h&severity=CRITICAL&state=OPEN&service=${svc}`);
+      expect(crit.body.incidents.length).toBe(1);
+      expect((await get(`/infrastructure?range=1h&severity=ATTENTION&service=${svc}`)).body.incidents).toHaveLength(0);
+      expect((await get(`/infrastructure?range=1h&state=RESOLVED&service=${svc}&scope=operational`)).body.incidents).toHaveLength(0);
+      for (const q of ['service=api', 'service=A;DROP', 'severity=XXX', 'state=NOPE', 'scope=all']) expect((await get(`/infrastructure?${q}`)).status).toBe(400);
+      expect((await get('/infrastructure?range=banana')).status).toBe(200); // período inválido cai no padrão, como nas outras telas
+    });
+
+    it('requisições reais da API entram em volume, erro 5xx e códigos HTTP', async () => {
+      const res = await get('/infrastructure?range=1h');
+      expect(res.body.api.requests).toBeGreaterThanOrEqual(9);
+      expect(res.body.api.errors).toBeGreaterThanOrEqual(1);
+      expect(res.body.http.classes['5xx']).toBeGreaterThanOrEqual(1);
+      expect(res.body.http.top.map((c: any) => c.code)).toContain(200);
+      expect(res.body.http.serverErrors.map((c: any) => c.code)).toContain(500);
+      expect(res.body.series.api.length).toBeGreaterThan(0);
+    });
+
+    it('a recuperação enviada pelo monitor encerra o MESMO alerta (automática) e o histórico mostra duração e recuperação', async () => {
+      process.env.MONITOR_INGEST_SECRET = INGEST_SECRET;
+      const end = Date.now();
+      const res = await send(body({ results: [], incidents: [{ id: `inc-${stamp}-1`, target, kind: 'DOWN', type: incType, severity: 'CRITICAL', startedAt: end - 120_000, endedAt: end, detail: '3 verificações seguidas sem sucesso', cause: 'resposta HTTP 503', groupedUnder: null, notifiedChannels: ['EMAIL'] }] }));
+      expect(res.status).toBe(200);
+      expect(res.body.incidents).toEqual({ closed: 1 });
+      const hist = await get(`/infrastructure?range=1h&service=${svc}&state=RESOLVED`);
+      expect(hist.body.incidents).toHaveLength(1);
+      expect(hist.body.incidents[0]).toMatchObject({ status: 'RESOLVED', recovery: 'AUTOMATIC' });
+      expect(hist.body.incidents[0].durationMs).toBeGreaterThan(0);
+    });
+
+    it('reenvio ATRASADO do incidente já encerrado não reabre o alerta', async () => {
+      process.env.MONITOR_INGEST_SECRET = INGEST_SECRET;
+      const res = await send(body({ results: [], incidents: [{ id: `inc-${stamp}-1`, target, kind: 'DOWN', type: incType, severity: 'CRITICAL', startedAt: Date.now() - 600_000, endedAt: null, detail: 'reenvio antigo', cause: null, groupedUnder: null, notifiedChannels: [] }] }));
+      expect(res.status).toBe(200);
+      expect(res.body.staleIncidents).toBe(1);
+      expect(await bypass<number>(() => db.monitoringAlert.count({ where: { type: incType, endedAt: null } }))).toBe(0);
     });
   });
 
@@ -450,12 +588,13 @@ describe('Central de Monitoramento', () => {
       await asPlatform(() => monitoringService.applyAlert(platformAlert({ companyId: B.companyId, value: 1 }) as any, new Date()));
       await new Promise((r) => setTimeout(r, 400));
       expect(fetchSpy).toHaveBeenCalledTimes(1);
-      await post(`/alert-center/${id}/actions`, { action: 'RESOLVE', note: 'teste da deduplicação' });
+      const resolved = await post(`/alert-center/${id}/actions`, { action: 'RESOLVE', note: 'teste da deduplicação' });
+      expect([resolved.status, JSON.stringify(resolved.body).slice(0, 300)]).toEqual([200, expect.any(String)]);
       expect(await asPlatform(() => monitoringService.applyAlert(platformAlert({ companyId: B.companyId }) as any, new Date()))).toBe('reopened');
       expect(await waitFor(async () => (await get(`/alert-center/${id}`)).body.events.some((e: any) => e.kind === 'NOTIFICATION_SUPPRESSED'))).toBe(true);
       expect(fetchSpy).toHaveBeenCalledTimes(1); // nenhum segundo e-mail
       const suppressed = (await get(`/alert-center/${id}`)).body.events.find((e: any) => e.kind === 'NOTIFICATION_SUPPRESSED');
-      expect(suppressed.note).toBe('DEDUPE');
+      expect(suppressed.note).toBe('e-mail: DEDUPE'); // o motivo agora vem com o canal (e-mail, SMS e WhatsApp têm limites próprios)
     });
 
     it('gravidade abaixo do mínimo (atenção) não avisa', async () => {
@@ -584,7 +723,7 @@ describe('Central de Monitoramento', () => {
   describe('ajustes e custos: só restringem', () => {
     it('baixar limite e desligar notificação vale; subir acima do ambiente não surte efeito; chave desconhecida e valor ruim são recusados; é auditado', async () => {
       const base = (await get('/settings')).body;
-      expect(base.toggles).toEqual({ emailNotifications: true, sentry: true, sampling: true });
+      expect(base.toggles).toEqual({ emailNotifications: true, smsNotifications: true, whatsappNotifications: true, sentry: true, sampling: true });
       const lowered = await request(app).put(`${CENTRAL}/settings`).set(bearer(saToken)).send({ toggles: { sentry: false }, limits: { emailMaxPerHour: 1, emailMaxPerDay: 99999 } });
       expect(lowered.status).toBe(200);
       expect(lowered.body.toggles.sentry).toBe(false);

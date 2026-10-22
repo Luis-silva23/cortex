@@ -16,6 +16,7 @@ import {
   BookOpen,
   FolderTree,
   UserCog,
+  Server,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CortexMark } from '@/components/ui/cortex-mark';
@@ -28,6 +29,7 @@ const navigation: Array<{ name: string; href: string; icon: typeof Activity; mat
   { name: 'Usuários', href: '/dashboard/users', icon: Users },
   { name: 'Auditoria', href: '/dashboard/audit-logs', icon: ScrollText },
   { name: 'Backup', href: '/dashboard/backup', icon: DatabaseBackup },
+  { name: 'Infraestrutura', href: '/dashboard/infraestrutura', icon: Server },
   { name: 'Observabilidade', href: '/dashboard/observability/central', icon: Activity, match: '/dashboard/observability' },
 ];
 

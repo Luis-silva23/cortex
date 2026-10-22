@@ -59,6 +59,7 @@ jobs:
           npm run type-check --workspace=@ln-system/super-admin
           npm run type-check --workspace=@ln-system/pdv-desktop
           npm run type-check --workspace=@ln-system/balcao
+          npm run type-check --workspace=@ln-system/monitor
 
   unit-tests:
     name: Unit Tests
@@ -83,6 +84,8 @@ jobs:
         run: npm run test:logic --workspace=@ln-system/pdv-desktop
       - name: Run Balcão logic tests
         run: npm run test:logic --workspace=@ln-system/balcao
+      - name: Run Monitor independente tests (rede simulada; compila e roda node --test)
+        run: npm test --workspace=@ln-system/monitor
 
   integration-tests:
     name: Integration Tests (real Postgres + Redis)

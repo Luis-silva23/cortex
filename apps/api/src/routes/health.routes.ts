@@ -30,13 +30,39 @@ const ok = (p: Promise<unknown>) =>
   );
 
 /**
+ * PROTEÇÃO CONTRA ABUSO: as sondas são públicas e cada chamada tocava banco e Redis. Agora chamadas SIMULTÂNEAS dividem uma verificação só (single-flight) e o resultado vale por
+ * HEALTH_CACHE_MS (padrão 2000; 0 desliga; em teste o padrão é 0). Uma enxurrada de requisições vira, no máximo, uma ida ao banco a cada janela — a sonda continua refletindo a
+ * realidade com no máximo esse atraso (o monitor externo mede a cada 30 s ou mais).
+ */
+type DependencyState = { database: boolean; redis: boolean };
+let cached: { at: number; settled: boolean; value: Promise<DependencyState> } | null = null;
+export const __resetHealthCache = () => {
+  cached = null;
+};
+function dependencyState(): Promise<DependencyState> {
+  const ttl = Math.max(0, Number(process.env.HEALTH_CACHE_MS ?? (process.env.NODE_ENV === 'test' ? 0 : 2000)) || 0);
+  const now = Date.now();
+  if (cached && (!cached.settled || now - cached.at < ttl)) return cached.value;
+  const entry: NonNullable<typeof cached> = {
+    at: now,
+    settled: false,
+    value: Promise.all([ok(pingDatabase()), ok(pingRedis())]).then(([database, redis]) => ({ database, redis })),
+  };
+  void entry.value.then(() => {
+    entry.settled = true;
+  });
+  cached = entry;
+  return entry.value;
+}
+
+/**
  * @route   GET /api/health
  * @desc    Estado detalhado (banco, Redis, workers). 200 só com tudo de pé e fora de desligamento; 503 caso contrário.
  * @access  Public (sem dado de negócio, sem detalhe técnico de erro)
  */
 router.get('/', async (_req: Request, res: Response) => {
   const draining = isShuttingDown();
-  const [database, redis] = await Promise.all([ok(pingDatabase()), ok(pingRedis())]);
+  const { database, redis } = await dependencyState();
   const workers = workersRunning();
 
   const healthy = database && redis && workers && !draining;
@@ -63,7 +89,7 @@ router.get('/', async (_req: Request, res: Response) => {
  */
 router.get('/ready', async (_req: Request, res: Response) => {
   if (isShuttingDown()) return res.status(503).json({ status: 'draining' });
-  const [database, redis] = await Promise.all([ok(pingDatabase()), ok(pingRedis())]);
+  const { database, redis } = await dependencyState();
   const workers = workersRunning();
   if (database && redis && workers) return res.status(200).json({ status: 'ready' });
   // Só diz QUAL dependência está fora; nunca a mensagem do erro (pode trazer host, usuário ou detalhe de conexão).

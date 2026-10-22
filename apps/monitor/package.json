@@ -1,0 +1,17 @@
+{
+  "name": "@ln-system/monitor",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monitor de disponibilidade INDEPENDENTE do CÓRTEX: roda fora da API e do painel que monitora, sem dependências de execução (só Node 20+).",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "start": "node dist/apps/monitor/src/main.js",
+    "once": "node dist/apps/monitor/src/main.js --once",
+    "check-config": "node dist/apps/monitor/src/main.js --check-config",
+    "test": "tsc -p tsconfig.json && node --test dist/apps/monitor/src/config.test.js dist/apps/monitor/src/probe.test.js dist/apps/monitor/src/engine.test.js dist/apps/monitor/src/store.test.js dist/apps/monitor/src/notify.test.js dist/apps/monitor/src/report.test.js"
+  }
+}

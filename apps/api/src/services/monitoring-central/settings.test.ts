@@ -33,7 +33,11 @@ describe('ajuste em tempo de execução: só restringe, nunca aumenta consumo', 
   });
 
   it('chaves liga/desliga só podem DESLIGAR', () => {
-    expect(resolveEffective(env, null).toggles).toEqual({ emailNotifications: true, sentry: true, sampling: true });
+    expect(resolveEffective(env, null).toggles).toEqual({ emailNotifications: true, smsNotifications: true, whatsappNotifications: true, sentry: true, sampling: true });
+    // SMS e WhatsApp: padrões conservadores (custam por mensagem) e o ambiente continua sendo o teto
+    expect(resolveEffective(env, null).limits).toMatchObject({ smsMaxPerHour: 3, smsMaxPerDay: 10, whatsappMaxPerHour: 3, whatsappMaxPerDay: 10, smsDedupeMinutes: 120 });
+    expect(resolveEffective(env, { limits: { smsMaxPerHour: 99 } }).limits.smsMaxPerHour).toBe(3);
+    expect(resolveEffective(env, { limits: { whatsappMaxPerHour: 1 } }).limits.whatsappMaxPerHour).toBe(1);
     expect(resolveEffective(env, { toggles: { sentry: false } }).toggles.sentry).toBe(false);
     expect(resolveEffective(env, { toggles: { sentry: true, sampling: true } }).overridden).toEqual([]);
   });

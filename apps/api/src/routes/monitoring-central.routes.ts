@@ -10,6 +10,7 @@ import { ALL_MODULES, companyDetail, getOverview, getSeries, isRange, listCompan
 import { ACTIONS, getAlert, listAlerts, listAssignees, transition } from '../services/monitoring-central/alert-center.service';
 import { createLead, getFunnel, linkCompany, listLeads, moveLead } from '../services/monitoring-central/funnel.service';
 import { externalStatus } from '../services/monitoring-central/external-status.service';
+import { INCIDENT_STATES, SCOPES, SERVICE_KEY_RE, SEVERITIES, getInfrastructure, type InfrastructureFilters } from '../services/monitoring-central/infrastructure.service';
 import { checkResendDomain } from '../services/monitoring-central/resend.service';
 import { getEffective, updateOverrides } from '../services/monitoring-central/settings.service';
 import { ALL_STAGES, type AlertAction, type AlertCategory, type AlertStatus, type CompanyLifecycle } from '../services/monitoring-central/model';
@@ -41,6 +42,18 @@ const user = (req: Request) => (req as Request & { user: { userId: string } }).u
 // ---------- Visão executiva e séries ----------
 router.get('/overview', wrap(async (req, res) => res.json(await getOverview(rangeOf(req.query.range)))));
 router.get('/series', wrap(async (req, res) => res.json(await getSeries(rangeOf(req.query.range)))));
+// ---------- Infraestrutura (serviços, dependências, requisições da API, incidentes técnicos × operacionais) ----------
+router.get('/infrastructure', wrap(async (req, res) => {
+  const service = str(req.query.service);
+  if (service && !SERVICE_KEY_RE.test(service)) throw new AppError('Serviço inválido.', 400, 'INVALID_FILTER');
+  const severity = str(req.query.severity);
+  if (severity && !(SEVERITIES as readonly string[]).includes(severity)) throw new AppError('Gravidade inválida.', 400, 'INVALID_FILTER');
+  const state = str(req.query.state);
+  if (state && !(INCIDENT_STATES as readonly string[]).includes(state)) throw new AppError('Estado inválido.', 400, 'INVALID_FILTER');
+  const scope = str(req.query.scope);
+  if (scope && !(SCOPES as readonly string[]).includes(scope)) throw new AppError('Escopo inválido.', 400, 'INVALID_FILTER');
+  res.json(await getInfrastructure(rangeOf(req.query.range), { service, severity: severity as InfrastructureFilters['severity'], state: state as InfrastructureFilters['state'], scope: scope as InfrastructureFilters['scope'] }));
+}));
 router.get('/meta', wrap(async (_req, res) => res.json({ ranges: Object.keys(RANGES), modules: ALL_MODULES, stages: ALL_STAGES })));
 
 // ---------- Empresas ----------

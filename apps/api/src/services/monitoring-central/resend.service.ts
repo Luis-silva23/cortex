@@ -7,14 +7,14 @@
  * Nada aqui é chamado no caminho de uma requisição de usuário: só jobs e ações explícitas do Super Admin.
  */
 import { createHash } from 'crypto';
+import { sendEmailResend, sendWithFailover } from '@ln-system/shared/utils/alert-channels';
 import { logger } from '../../utils/logger';
 import { getEffective, type MonitoringLimits } from './settings.service';
 import { lastDeliveryAt, recordDelivery, safeError, sentCounts, type SentCounts } from './deliveries';
+import { createBreaker, decideChannelSend, type SuppressReason as CoreSuppressReason } from './channel-core';
 
 const RESEND_URL = 'https://api.resend.com';
 const TIMEOUT_MS = 5_000;
-const BREAKER_FAILURES = 3;
-const BREAKER_PAUSE_MS = 15 * 60_000;
 
 export interface ResendConfig {
   configured: boolean;
@@ -37,7 +37,7 @@ export function resendConfig(env: NodeJS.ProcessEnv = process.env): ResendConfig
   return { configured: missing.length === 0, missing, from, to, domain };
 }
 
-export type SuppressReason = 'DISABLED' | 'NOT_CONFIGURED' | 'DEDUPE' | 'HOUR_CAP' | 'DAY_CAP' | 'MONTH_CAP' | 'BREAKER';
+export type SuppressReason = CoreSuppressReason;
 
 export interface DecisionInput {
   configured: boolean;
@@ -51,22 +51,23 @@ export interface DecisionInput {
 
 /** Decisão PURA de envio (testável sem rede): primeiro motivo que impede, na ordem de custo. */
 export function decideSend(i: DecisionInput): { send: true } | { send: false; reason: SuppressReason } {
-  if (!i.configured) return { send: false, reason: 'NOT_CONFIGURED' };
-  if (!i.enabled) return { send: false, reason: 'DISABLED' };
-  if (i.breakerOpenUntil > i.now.getTime()) return { send: false, reason: 'BREAKER' };
-  if (i.lastSameKeyAt && i.now.getTime() - i.lastSameKeyAt.getTime() < i.limits.emailDedupeMinutes * 60_000) return { send: false, reason: 'DEDUPE' };
-  if (i.counts.hour >= i.limits.emailMaxPerHour) return { send: false, reason: 'HOUR_CAP' };
-  if (i.counts.day >= i.limits.emailMaxPerDay) return { send: false, reason: 'DAY_CAP' };
-  if (i.counts.month >= i.limits.emailMaxPerMonth) return { send: false, reason: 'MONTH_CAP' };
-  return { send: true };
+  // a regra é a MESMA de todos os canais (channel-core); aqui só se traduzem os limites do e-mail
+  return decideChannelSend({
+    configured: i.configured,
+    enabled: i.enabled,
+    counts: i.counts,
+    limits: { maxPerHour: i.limits.emailMaxPerHour, maxPerDay: i.limits.emailMaxPerDay, maxPerMonth: i.limits.emailMaxPerMonth, dedupeMinutes: i.limits.emailDedupeMinutes },
+    lastSameKeyAt: i.lastSameKeyAt,
+    now: i.now,
+    breakerOpenUntil: i.breakerOpenUntil,
+  });
 }
 
-// Disjuntor em memória (por processo): falhas seguidas pausam novas tentativas por BREAKER_PAUSE_MS, sem martelar o provedor.
-const breaker = { failures: 0, openUntil: 0 };
-export const breakerState = () => ({ ...breaker });
+// Disjuntor em memória (por processo): falhas seguidas pausam novas tentativas, sem martelar o provedor.
+const breaker = createBreaker();
+export const breakerState = () => breaker.state();
 export function __resetResendBreaker() {
-  breaker.failures = 0;
-  breaker.openUntil = 0;
+  breaker.reset();
 }
 
 // Supressões repetidas pelo mesmo motivo não viram uma linha cada: no máximo uma por motivo e hora (senão a própria proteção viraria tempestade de gravações).
@@ -91,6 +92,8 @@ export interface SendDeps {
   fetchImpl?: typeof fetch;
   now?: Date;
   env?: NodeJS.ProcessEnv;
+  /** Espera entre tentativas (injetável nos testes). */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export async function sendEmail(input: SendEmailInput, deps: SendDeps = {}): Promise<SendEmailResult> {
@@ -116,7 +119,7 @@ export async function sendEmail(input: SendEmailInput, deps: SendDeps = {}): Pro
     limits: effective.limits,
     lastSameKeyAt,
     now,
-    breakerOpenUntil: breaker.openUntil,
+    breakerOpenUntil: breaker.openUntil(),
   });
   if (!decision.send) {
     // "não configurado" e "desligado" são estados, não eventos: não gravam nada. Limites, repetição e disjuntor deixam rastro (no máximo 1 por motivo/hora).
@@ -130,35 +133,22 @@ export async function sendEmail(input: SendEmailInput, deps: SendDeps = {}): Pro
     return { status: 'SUPPRESSED', reason: decision.reason };
   }
 
-  const recipients = input.to && input.to.length > 0 ? input.to : cfg.to;
   const idempotency = createHash('sha256').update(`${input.dedupeKey}:${Math.floor(now.getTime() / 3_600_000)}`).digest('hex').slice(0, 48);
-  try {
-    const res = await (deps.fetchImpl ?? fetch)(`${RESEND_URL}/emails`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json', 'Idempotency-Key': idempotency },
-      body: JSON.stringify({ from: cfg.from, to: recipients, subject: input.subject, text: input.text, ...(input.html ? { html: input.html } : {}) }),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
-    if (!res.ok) {
-      let detail = '';
-      try {
-        detail = safeError(((await res.json()) as { message?: string }).message ?? '');
-      } catch {
-        /* corpo sem JSON: fica só o status */
-      }
-      throw new Error(`http_${res.status}${detail ? `: ${detail}` : ''}`);
-    }
-    breaker.failures = 0;
+  // transporte ÚNICO (shared) com retentativa controlada: 2 tentativas só para falha repetível (rede, 429, 5xx); erro de credencial/destinatário não se repete
+  const { result } = await sendWithFailover(
+    [{ provider: 'resend', run: () => sendEmailResend(env, { subject: input.subject, text: input.text, to: input.to, idempotencyKey: idempotency }, { fetchImpl: deps.fetchImpl, timeoutMs: TIMEOUT_MS }) }],
+    { attemptsPerProvider: 2, backoffMs: [1000], sleep: deps.sleep }
+  );
+  if (result.ok) {
+    breaker.ok();
     await recordDelivery({ channel: 'EMAIL', status: 'SENT', dedupeKey: input.dedupeKey, alertId: input.alertId });
     return { status: 'SENT' };
-  } catch (error) {
-    breaker.failures += 1;
-    if (breaker.failures >= BREAKER_FAILURES) breaker.openUntil = now.getTime() + BREAKER_PAUSE_MS;
-    const message = safeError(error instanceof Error ? error.message : error);
-    await recordDelivery({ channel: 'EMAIL', status: 'FAILED', dedupeKey: input.dedupeKey, alertId: input.alertId, error: message });
-    logger.warn('Resend: falha ao entregar e-mail (alerta interno segue funcionando)', { error: message, failures: breaker.failures });
-    return { status: 'FAILED', reason: message };
   }
+  breaker.fail(now.getTime());
+  const message = safeError(result.error ?? 'falha');
+  await recordDelivery({ channel: 'EMAIL', status: 'FAILED', dedupeKey: input.dedupeKey, alertId: input.alertId, error: message });
+  logger.warn('Resend: falha ao entregar e-mail (alerta interno segue funcionando)', { error: message, failures: breaker.state().failures });
+  return { status: 'FAILED', reason: message };
 }
 
 /**

@@ -27,20 +27,9 @@ import {
   isLongRange,
 } from '../_central/format';
 import { ChartCard, Freshness, InlineError, Kpi, Notice, Pill, RangeSelector, StatusPill } from '../_central/ui';
+import { mergeSeries } from '../_central/series';
 
 const dash = '—';
-
-function mergeSeries(parts: Array<{ key: string; rows: Array<{ t: number } & Record<string, any>>; field: string }>): TimePoint[] {
-  const map = new Map<number, TimePoint>();
-  for (const { key, rows, field } of parts) {
-    for (const r of rows) {
-      const row = map.get(r.t) ?? { t: r.t };
-      row[key] = r[field] ?? null;
-      map.set(r.t, row);
-    }
-  }
-  return [...map.values()].sort((a, b) => a.t - b.t);
-}
 
 export default function CentralPage() {
   const [range, setRange] = useState<CentralRange>('24h');

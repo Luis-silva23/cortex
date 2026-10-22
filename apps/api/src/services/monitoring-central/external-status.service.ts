@@ -5,6 +5,8 @@
  */
 import { sentryConfigStatus, sentryRuntime } from './sentry.service';
 import { breakerState, resendConfig } from './resend.service';
+import { smsBreaker, smsConfig } from './sms.service';
+import { whatsappBreaker, whatsappConfig } from './whatsapp.service';
 import { deliverySummary } from './deliveries';
 import { getEffective, envRetention } from './settings.service';
 
@@ -41,8 +43,16 @@ export function domainReadiness(env: NodeJS.ProcessEnv = process.env) {
 }
 
 export async function externalStatus(env: NodeJS.ProcessEnv = process.env, now = new Date()) {
-  const [effective, emailD, sentryD] = await Promise.all([getEffective(env), deliverySummary('EMAIL', now), deliverySummary('SENTRY', now)]);
+  const [effective, emailD, sentryD, smsD, whatsappD] = await Promise.all([
+    getEffective(env),
+    deliverySummary('EMAIL', now),
+    deliverySummary('SENTRY', now),
+    deliverySummary('SMS', now),
+    deliverySummary('WHATSAPP', now),
+  ]);
   const resend = resendConfig(env);
+  const sms = smsConfig(env);
+  const whatsapp = whatsappConfig(env);
   const sentry = sentryConfigStatus(env);
   const retention = envRetention(env);
   return {
@@ -68,6 +78,32 @@ export async function externalStatus(env: NodeJS.ProcessEnv = process.env, now =
       consumption: emailD,
       breaker: breakerState(),
       note: 'Só envia com chave, remetente em domínio VERIFICADO, destinatários e RESEND_DOMAIN_VERIFIED=true. O plano gratuito do provedor tem limite diário e mensal próprios (na última consulta: 100/dia e 3 mil/mês, 1 domínio); no limite a Central SUPRIME o envio, nunca contrata plano.',
+    },
+    sms: {
+      configured: sms.configured,
+      state: !sms.configured ? 'PENDING_CONFIGURATION' : effective.toggles.smsNotifications ? 'ACTIVE' : 'DISABLED',
+      missing: sms.missing,
+      providers: sms.providers,
+      recipients: sms.to.length,
+      invalidRecipients: sms.invalidRecipients,
+      enabled: effective.toggles.smsNotifications,
+      limits: { perHour: effective.limits.smsMaxPerHour, perDay: effective.limits.smsMaxPerDay, perMonth: effective.limits.smsMaxPerMonth, dedupeMinutes: effective.limits.smsDedupeMinutes },
+      consumption: smsD,
+      breaker: smsBreaker.state(),
+      note: 'Provedor: Twilio. Só envia com credenciais, remetente, números válidos e ALERT_SMS_SENDER_VERIFIED=true (remetente registrado para o Brasil). "Enviado" = aceito pelo provedor; a confirmação de entrega no aparelho não é lida.',
+    },
+    whatsapp: {
+      configured: whatsapp.configured,
+      state: !whatsapp.configured ? 'PENDING_CONFIGURATION' : effective.toggles.whatsappNotifications ? 'ACTIVE' : 'DISABLED',
+      missing: whatsapp.missing,
+      providers: whatsapp.providers,
+      recipients: whatsapp.to.length,
+      invalidRecipients: whatsapp.invalidRecipients,
+      enabled: effective.toggles.whatsappNotifications,
+      limits: { perHour: effective.limits.whatsappMaxPerHour, perDay: effective.limits.whatsappMaxPerDay, perMonth: effective.limits.whatsappMaxPerMonth, dedupeMinutes: effective.limits.whatsappDedupeMinutes },
+      consumption: whatsappD,
+      breaker: whatsappBreaker.state(),
+      note: 'Integração oficial: Meta WhatsApp Cloud API ou Twilio (parceiro autorizado), com modelo de mensagem APROVADO (ALERT_WHATSAPP_TEMPLATE_APPROVED=true). "Enviado" = aceito pelo provedor; entrega/leitura não são lidas.',
     },
     database: { ...databaseTarget(env.DATABASE_URL), note: 'Detecção só pelo endereço configurado. A análise de compatibilidade com Supabase (papéis, RLS, pooler, migrações) está em PRODUCAO.md; nada foi migrado.' },
     domain: domainReadiness(env),

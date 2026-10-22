@@ -13,7 +13,7 @@ const tabs = [
   { name: 'Resumo técnico', href: '/dashboard/observability' },
   { name: 'Performance', href: '/dashboard/observability/performance' },
   { name: 'Segurança', href: '/dashboard/observability/security' },
-  { name: 'Infraestrutura', href: '/dashboard/observability/health' },
+  { name: 'Servidor e filas', href: '/dashboard/observability/health' },
   { name: 'Integrações', href: '/dashboard/observability/integrations' },
   { name: 'Jobs', href: '/dashboard/observability/jobs' },
   { name: 'Logs', href: '/dashboard/observability/logs' },

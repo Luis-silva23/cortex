@@ -143,7 +143,7 @@ export function integrationSummary(items: IntegrationItem[]) {
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Alertas: categoria, estado exposto, transições e orientação
 // ---------------------------------------------------------------------------------------------------------------------------------------------
-export type AlertCategory = 'DATABASE' | 'REDIS' | 'QUEUES' | 'API' | 'HOST' | 'NETWORK' | 'DEVICE' | 'BACKUP' | 'INTEGRATION' | 'NOTIFICATION' | 'OTHER';
+export type AlertCategory = 'DATABASE' | 'REDIS' | 'QUEUES' | 'API' | 'HOST' | 'NETWORK' | 'DEVICE' | 'BACKUP' | 'INTEGRATION' | 'NOTIFICATION' | 'EXTERNAL' | 'OTHER';
 export type AlertStatus = 'OPEN' | 'ACKNOWLEDGED' | 'IN_PROGRESS' | 'RESOLVED';
 
 export function alertCategory(type: string): AlertCategory {
@@ -156,7 +156,9 @@ export function alertCategory(type: string): AlertCategory {
   if (type.startsWith('DEVICE')) return 'DEVICE';
   if (type.startsWith('BACKUP')) return 'BACKUP';
   if (type.startsWith('INTEGRATION')) return 'INTEGRATION';
-  if (type.startsWith('NOTIFICATION') || type.startsWith('EMAIL') || type.startsWith('SENTRY')) return 'NOTIFICATION';
+  if (type.startsWith('NOTIFICATION') || type.startsWith('EMAIL') || type.startsWith('SENTRY') || type.startsWith('SMS') || type.startsWith('WHATSAPP')) return 'NOTIFICATION';
+  // medido de FORA da infraestrutura pelo monitor independente (apps/monitor): EXTERNAL_<ALVO>_DOWN|SLOW|ERRORS, EXTERNAL_MONITOR_STALE
+  if (type.startsWith('EXTERNAL_')) return 'EXTERNAL';
   return 'OTHER';
 }
 
@@ -191,7 +193,9 @@ const GUIDANCE: Array<[RegExp, string]> = [
   [/^BACKUP_VERIFY/, 'A verificação do backup falhou: NÃO confie neste arquivo. Rode a verificação de novo, confira a chave de cifra e gere um backup novo.'],
   [/^BACKUP/, 'Backup velho demais ou ausente: confira o serviço de backup (agenda, espaço, credencial) e o destino externo. Gere um backup manualmente e verifique-o.'],
   [/^INTEGRATION/, 'Integração com erro: abra a empresa › Integrações, veja o último erro e teste a conexão do canal. Erro de credencial exige nova credencial da empresa.'],
-  [/^NOTIFICATION|^EMAIL|^SENTRY/, 'Falha ao entregar notificação externa: confira a chave do provedor, o domínio remetente verificado e os limites do plano. O alerta interno continua funcionando.'],
+  [/^NOTIFICATION|^EMAIL|^SENTRY|^SMS|^WHATSAPP/, 'Falha ao entregar notificação externa: confira a chave do provedor, o domínio/remetente verificado (e-mail, SMS) ou o modelo aprovado (WhatsApp) e os limites do plano. O alerta interno continua funcionando.'],
+  [/^EXTERNAL_MONITOR_STALE/, 'O monitor externo parou de reportar: o painel NÃO sabe se o sistema está de pé visto de fora. Confira se o processo do monitor está rodando no host dele, o segredo de ingestão e a conexão entre os dois. Os avisos por e-mail/SMS/WhatsApp do próprio monitor seguem funcionando se ele estiver vivo.'],
+  [/^EXTERNAL_/, 'Medido de fora da infraestrutura: o serviço não respondeu (ou respondeu lento/com erro) para o monitor externo. Compare com os alertas internos: se só o externo alertou, suspeite de rede, DNS, certificado ou proxy entre o usuário e a API.'],
 ];
 
 export function alertGuidance(type: string): string | null {

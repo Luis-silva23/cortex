@@ -32,6 +32,17 @@ export const fmtBytes = (v: number | null | undefined) => {
   if (v < 1_048_576) return `${(v / 1024).toFixed(1)} KB`;
   return `${(v / 1_048_576).toFixed(1)} MB`;
 };
+/** Duração legível de um incidente: "45 s", "12 min", "3 h 20 min", "2 d 4 h". */
+export function fmtDuration(ms: number | null | undefined): string {
+  if (ms === null || ms === undefined || !Number.isFinite(ms) || ms < 0) return '—';
+  const s = Math.round(ms / 1000);
+  if (s < 90) return `${s} s`;
+  const m = Math.round(s / 60);
+  if (m < 90) return `${m} min`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h} h ${m % 60} min`;
+  return `${Math.floor(h / 24)} d ${h % 24} h`;
+}
 export function fmtAgo(iso: string | Date | null | undefined, now = Date.now()): string {
   if (!iso) return 'sem registro';
   const t = (typeof iso === 'string' ? new Date(iso) : iso).getTime();
@@ -72,6 +83,7 @@ export const CATEGORY_LABEL: Record<string, string> = {
   BACKUP: 'Backup',
   INTEGRATION: 'Integrações',
   NOTIFICATION: 'Notificações',
+  EXTERNAL: 'Monitor externo',
   OTHER: 'Outros',
 };
 export const EVENT_LABEL: Record<string, string> = {
