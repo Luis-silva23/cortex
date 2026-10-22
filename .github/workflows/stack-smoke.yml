@@ -14,6 +14,9 @@ on:
       - 'apps/*/Dockerfile'
       - 'deploy/**'
       - 'packages/database/prisma/**'
+      - 'package-lock.json'
+      - 'apps/*/package.json'
+      - 'packages/*/package.json'
       - '.github/workflows/stack-smoke.yml'
 
 permissions:
