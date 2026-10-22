@@ -185,6 +185,12 @@ jobs:
           CORTEX_DB_ADMIN_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/postgres"
           DATABASE_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/lnsystem_db?schema=public"
         run: npm run db:role-split-check -- --all
+      # O log do job exige login; o relatório do script (URLs/senhas já redigidas, sem segredos) vai para o resumo da execução, que é público no repositório.
+      - name: Relatório do role-split no resumo do job
+        if: always()
+        run: |
+          f=docs/CORTEX/revisao-banco/role-split-resultado.md
+          if [ -n "$(git status --porcelain -- "$f")" ]; then cat "$f" >> "$GITHUB_STEP_SUMMARY"; else echo "O script não gravou um relatório novo nesta execução." >> "$GITHUB_STEP_SUMMARY"; fi
       # Removida uma 2ª execução da MESMA suíte como superusuário ("rápida"): ela não prova RLS e reprova por construção os testes que exigem que a RLS
       # NEGUE acesso (superusuário ignora RLS: monitoring-thresholds-alerts e policies-foundation falham só por isso — reproduzido). A suíte completa já
       # roda no passo acima, com o papel mais restritivo, então nenhuma cobertura se perde.
