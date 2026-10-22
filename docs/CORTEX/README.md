@@ -22,6 +22,8 @@ Toda a documentação do produto fica aqui. Comece por [CORTEX_BRAIN](CORTEX_BRA
 | [commerce-api.openapi.yaml](commerce-api.openapi.yaml) | Contrato OpenAPI da Commerce API (`/commerce/v1`): autenticação por assinatura, recursos, erros. |
 | [GOOGLE_CLOUD](GOOGLE_CLOUD.md) | **Destino de implantação atual (2026-10-22):** requisitos reais por componente, VM + compose (comprovado) × serviços gerenciados (a adaptar), rede/HTTPS/CORS, segredos, backups, custos de referência. Nada foi criado no Google Cloud. |
 | [HOMOLOGACAO_POS_NEXT15](HOMOLOGACAO_POS_NEXT15.md) | Rodada de homologação depois do Next 15.5.28 (2026-10-22): falha isolada de integração, E2E, regressão funcional/visual, contagem de tabelas e vulnerabilidades restantes, com o que foi comprovado, o que falhou e o que segue pendente. |
+| [CLOUDFLARE](CLOUDFLARE.md) | Homologação do Admin Web e do Super Admin em Cloudflare Workers (2026-10-22): causa comprovada da falha do Workers Builds, compatibilidade de versões, arquitetura recomendada, build e execução no workerd, riscos, custos e o passo a passo manual do painel. **Nada implantado.** |
+| [SEGURANCA_DEPENDENCIAS](SEGURANCA_DEPENDENCIAS.md) | Análise por advisory do `npm audit` (96 pacotes, 12 com advisory própria): caminho, exposição real, mitigação, recomendação e testes. |
 | [CONSOLIDACAO_PASTAS](CONSOLIDACAO_PASTAS.md) | Qual pasta é a principal (`CORTEX-publicacao`), os 328 itens pendentes contabilizados, backup do estado anterior e como recuperar o histórico de 314 commits. |
 | [SECURITY](SECURITY.md) | Autenticação, MFA, isolamento, permissões, segredos (`DATA_ENCRYPTION_KEY`), auditoria, limites. |
 | [DATABASE](DATABASE.md) | Migrações, RLS, livro de estoque, backup e restauração. |

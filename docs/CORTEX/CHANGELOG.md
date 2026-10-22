@@ -4,6 +4,17 @@ Rodada a rodada, do mais recente para o mais antigo. Cada correção de defeito 
 Até 2026-09-25 o detalhe (achado, prova, incidente) está no
 [registro de auditoria](historico/registro-de-auditoria-2026-09-14-a-25.md).
 
+## Segunda rodada de homologação: Cloudflare, falhas intermitentes e E2E com RLS (2026-10-22)
+
+Detalhe em [HOMOLOGACAO_POS_NEXT15 §8](HOMOLOGACAO_POS_NEXT15.md), [CLOUDFLARE](CLOUDFLARE.md) e [SEGURANCA_DEPENDENCIAS](SEGURANCA_DEPENDENCIAS.md).
+
+| O quê |
+|---|
+| **Cloudflare:** causa da falha do Workers Builds **comprovada** (raiz `/` sem configuração de Worker; configuração automática do Wrangler falha em monorepo com vários frameworks). Adicionados `wrangler.jsonc` e `open-next.config.ts` (Admin Web = Worker `cortex`; Super Admin = `cortex-super-admin`) e o workflow `cloudflare-homologacao.yml` (runner Linux, sem segredos, sem implantar): build OpenNext, dry-run (2,1 MiB gzip) e workerd local **aprovados nos dois apps**; Admin Web funcional no workerd (login, sessão, CORS, 21 rotas, permissões). **Não implantado** e **não homologado** para produção; o Workers Builds segue reprovando até a configuração manual do painel. |
+| **E2E com a API como papel de aplicação** (`rolsuper = f`, `rolbypassrls = f`): 11 arquivos / 93 testes passam em **duas** execuções contínuas (A: 83/93 com MFA obrigatório, onde 2 arquivos de login por tela reprovam por conflito de configuração; B: 87/87 sem MFA). RLS provada por sonda direta no banco (sem contexto = 0 linhas; empresa A não vê a B; escrita cruzada negada). |
+| **Falhas intermitentes:** idempotência **resolvida** (teste de mutação confirma que o teste ainda pega o defeito real); `login-failed-audit` **mitigada, não comprovada** (hipótese do Redis não observada em 65 resets; auditoria assíncrona chegou a 2,5 s sob carga, janela do teste ampliada de 2 s para 15 s); build do Admin Web: **depende de rede** para a fonte Montserrat (reproduzido sem rede), alternativa local testada e revertida, causa do CI **não provada**. |
+| **Dependências:** análise por advisory em [SEGURANCA_DEPENDENCIAS](SEGURANCA_DEPENDENCIAS.md): 96 (0 críticas); `uuid` (declarada e não usada) e `turbo` (não usado no CI) candidatas a remoção; `xlsx`, Vite 8, React Router 7 e Next 16 dependem de decisão e teste. |
+
 ## Homologação técnica pós-Next 15.5.28 (2026-10-22)
 
 Detalhe, evidência e limites em [HOMOLOGACAO_POS_NEXT15](HOMOLOGACAO_POS_NEXT15.md).

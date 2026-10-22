@@ -403,7 +403,9 @@ Nunca envie senhas ou tokens no chat: coloque-os direto no `.env` do servidor ou
 | Backup externo e restauração em outro host | **preparado, depende de bucket e credenciais; não provado** |
 | Produção | **não pronta** (HTTPS, backup externo restaurado, alertas reais e homologação no servidor pendentes) |
 
-### 19.7 Admin Web na Cloudflare Workers: avaliado em 2026-10-22 — NÃO viável sem migração relevante
+### 19.7 Admin Web na Cloudflare Workers: avaliado em 2026-10-22
+
+> **ATUALIZAÇÃO (2026-10-22, tarde): a conclusão "NÃO viável sem migração relevante" abaixo foi SUPERADA.** Com o Next em 15.5.28, o adaptador OpenNext **constrói e roda** o Admin Web e o Super Admin no runtime do Workers (build no Windows e no Linux, pacote de 2,1 MiB gzip, login/sessão/CORS/rotas/permissões no workerd), sem migração de código. **Nada foi implantado e a integração NÃO está homologada para produção**; o Workers Builds continua reprovando até a configuração manual do painel (raiz `apps/admin-web`, comandos e variáveis). Tudo isso, com a causa comprovada da falha, as limitações e o passo a passo, está em **[CLOUDFLARE](CLOUDFLARE.md)**. O texto abaixo fica como registro da avaliação anterior (feita antes de o Next ser atualizado e de o adaptador ser testado); onde divergir do CLOUDFLARE, vale o CLOUDFLARE. O destino de implantação é o Google Cloud, não a Oracle.
 
 O Workers Builds falhou com "application detection logic has been run in the root of a workspace" porque o repositório é um monorepo (`workspaces: apps/*, packages/*`) sem nenhum `wrangler.jsonc` e a raiz foi usada como diretório. Apontar o diretório para `apps/admin-web` não resolve: não há o que publicar nesse caminho hoje.
 

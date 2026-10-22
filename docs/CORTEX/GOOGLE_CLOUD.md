@@ -49,6 +49,10 @@ Recomendação: **VM + compose agora; avaliar o gerenciado depois**, com um pilo
 - **CORS:** a API só libera as origens de `WEB_URL`, `SUPER_ADMIN_URL` e `BALCAO_URL`. **CSP:** `connect-src` dos painéis = própria origem + a origem de `NEXT_PUBLIC_API_URL`.
 - **`TRUST_PROXY`:** conte os saltos reais (Caddy sozinho = 1; se houver Cloud Load Balancer na frente do Caddy o número muda). Valide com `validar-homologacao.sh --tls <dominio>` e olhando o IP real nos logs antes de confiar em limites por IP.
 
+### 4.1 Cloudflare na frente (opcional, 2026-10-22)
+
+A Cloudflare pode ficar **na frente** do Google Cloud (DNS, proxy, HTTPS, WAF) e, se o responsável decidir, hospedar **só as duas telas web** (Admin Web e Super Admin) em Workers, mantendo a **API, o PostgreSQL e o Redis/BullMQ no Google Cloud** (a API é um processo Node de longa duração e não roda em Workers). Se as telas forem para a Cloudflare: a origem do Worker precisa estar em `WEB_URL`/`SUPER_ADMIN_URL` da API (CORS), a URL pública da API entra no build (`NEXT_PUBLIC_API_URL`, HTTPS) e na CSP, e o Super Admin merece Cloudflare Access. Homologação, riscos e passo a passo: [CLOUDFLARE](CLOUDFLARE.md). **Nada foi criado nem contratado.**
+
 ## 5. Segredos
 
 Gerados por `deploy/oci/gen-env.sh <dominio>` (aleatórios, modo 600, nunca impressos): `POSTGRES_PASSWORD`, `DB_OWNER_PASSWORD`, `DB_APP_PASSWORD`, `DB_BACKUP_PASSWORD`, `REDIS_PASSWORD`, `JWT_SECRET`, `JWT_REFRESH_SECRET`, `DATA_ENCRYPTION_KEY`, `RLS_CONTEXT_SECRET` e a chave de cifragem do backup (`backup.key`). **Guarde cópia no Secret Manager ou num cofre.** A perda de `DATA_ENCRYPTION_KEY` impede abrir os segredos de MFA já gravados; a perda de `backup.key`, restaurar qualquer backup. Integrações (Sentry, Resend, provedores de pagamento) ficam **desligadas** até haver credencial sua. Nunca envie segredo por chat.

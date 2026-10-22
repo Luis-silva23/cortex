@@ -112,3 +112,57 @@ Nenhuma das 96 está **explorável pela internet contra a API em produção**; a
 - Vulnerabilidades: `xlsx`, `react-router`, Vite/esbuild e Next 16 pendem de decisão e teste de compatibilidade.
 - Divergência do Balcão (SPA web × "APK") continua **aguardando decisão** ([APLICATIVOS](APLICATIVOS.md), decisão 116).
 - Produção: servidor/projeto Google Cloud (aguarda o suporte), domínio e HTTPS, bucket de backup externo + teste de restauração, monitoramento e alertas reais, Super Admin real, assinatura do PDV/Android, RPO/RTO aprovados. **O CÓRTEX não está pronto para produção.**
+
+## 8. Segunda rodada (2026-10-22, tarde): Cloudflare, falhas intermitentes, E2E contínuo com RLS
+
+Esta seção **atualiza** os itens acima. Onde houver divergência, vale o que está aqui.
+
+### 8.1 Cloudflare
+
+Detalhe completo em [CLOUDFLARE](CLOUDFLARE.md). **Causa da falha do Workers Builds: comprovada** (raiz `/` sem configuração de Worker, num monorepo com vários frameworks: a configuração automática do Wrangler falha, por documentação e por mensagem). **Compatibilidade**: Next 15.5.28 atende o adaptador (`>=15.5.28 <16`). **Build, pacote (2,1 MiB gzip) e execução no workerd com login, sessão, CORS, 21 rotas e permissões: OK** (Windows) e **build + dry-run + workerd + cabeçalhos: OK no runner Linux** para o Admin Web e o Super Admin. **Implantação real: NÃO feita** (sem credencial). O Workers Builds segue reprovando até a configuração manual do painel. **Não homologado para produção.**
+
+### 8.2 Falhas intermitentes — causas e classificação
+
+| Falha | Investigação desta rodada | Classificação |
+|---|---|---|
+| **`idempotency-key`** (CI, `bc62640`) | causa provada na rodada anterior; agora: 3 execuções seguidas aprovadas; **teste de mutação** (o produto deixa de liberar a chave vencida) **faz o teste reprovar** (1 falha), então a espera não mascara um defeito real; com a gravação atrasada em 400 ms o arquivo passa 5/5. Middleware **não alterado** (sem defeito de comportamento: a gravação assíncrona só é visível a quem lê em milissegundos). | **Resolvida com causa comprovada** |
+| **`login-failed-audit`** (CI `3f8d4c1`; local, rodada B) | **Hipótese do Redis (reset do limitador): NÃO observada.** Rodada R1 (CPU saturada, helper original instrumentado, 65 resets): o Redis ficou pronto em **no máximo 0,94 s** (janela de 5 s), `usingRedis` verdadeiro em **todos** os resets, e **os 19 resets que encontraram falhas acumuladas** (5 por IP/15 min) **limparam todos** os baldes; R1 passou 123/1802. **Hipótese da auditoria assíncrona: tem sustentação.** Medição com a CPU saturada (40 logins falhos): latência até a linha de auditoria aparecer **p50 0,8 s, p90 1,1 s, máximo 2,5 s, 1 de 40 acima de 2 s**, e o teste esperava só 2 s. A janela foi ampliada para 15 s (**mitigação por tempo, não sincronização**). **O segundo teste do arquivo (400 para corpos inválidos), que também caiu na rodada B, continua SEM explicação.** O helper `resetAuthLimits` endurecido fica como defesa; seu comentário foi corrigido para não afirmar uma causa que não se observou. | **Mitigada, mas não comprovada** (teste 1 com sustentação experimental; teste 2 sem explicação). Placar com o helper original sob contenção: 1 falha em 3 execuções completas. |
+| **Build do Admin Web** (CI, `7dce4f5`) | **Mecanismo reproduzido, causa do CI não provada.** Com a rede bloqueada (proxy para porta morta) o build do Admin Web **falha sempre** com "`next/font` error: Failed to fetch `Montserrat` from Google Fonts": o build **depende de rede** e esse é um modo de falha real. **Alternativa testada e revertida:** com a fonte hospedada (`next/font/local`, usando o próprio arquivo latino que o Next baixa, mesmo hash `904be59b…woff2`) o build **passa sem rede** (exit 0). Não há como afirmar que o build reprovado do CI foi isso (log privado; o `ci.yml` agora anota erros de build). **Não mudei a fonte**: o teste `design-identity.test.ts` fixa `import { Montserrat } from 'next/font/google'` (identidade de marca, "visual só com aprovação"). | **Mitigada em parte (diagnóstico melhor), causa não provada; hospedar a fonte = decisão do responsável** |
+
+### 8.3 E2E completo com a API como papel de aplicação (RLS exercida)
+
+Ambiente isolado: banco novo e migrado (57 migrations), API conectada como **`cortex_e2e_app`** (`rolsuper = f`, `rolbypassrls = f`, não dono; confirmado em `pg_stat_activity`), contexto de RLS assinado, Redis e servidores locais.
+
+| Rodada | Configuração | Resultado |
+|---|---|---|
+| **A** (11 arquivos, uma execução, 9 min 18 s) | MFA obrigatório para administrador de empresa | **83/93** testes; `mfa-privacy-image` **6/6**; **`admin-web-flow` e `user-access-flow` reprovam (10 testes)** porque entram pela tela como `admin.alfa` (sem MFA) e a API exige MFA: **conflito de configuração do desenho do E2E**, não regressão |
+| **B** (10 arquivos, uma execução, 3 min 41 s) | MFA desligado | **87/87**; por arquivo: `user-access-flow` 7/7, `admin-web-flow` 9/9, `support-console-pdv` 4/4, `monitoring-central` 18/18, `support-ticket-flow` 8/8, `balcao-flow` 13/13, `super-admin-flow` 6/6, `catalog-and-help` 7/7, `pdv-sale-flow` 9/9, `support-contextual-buttons` 6/6 |
+
+**Resumo honesto:** os 11 arquivos passam (93 testes) com a API como papel de aplicação, mas **em duas execuções contínuas com configurações diferentes da API**, porque o arquivo de MFA exige a API com a variável ligada e os de login por tela exigem desligada. **Uma única execução verde de todos os 11 não é possível com o desenho atual** (exigiria que o E2E de MFA use um administrador próprio ou que os demais usem um administrador já com MFA). O `pdv-sale-flow` gravou duas vendas no banco isolado (descartável).
+
+**RLS no banco, como o papel de aplicação** (sonda direta): sem contexto, **0** clientes/usuários/vendas visíveis; contexto da empresa Alfa vê só os dela (2 clientes, 10 usuários, 2 vendas); contexto da Beta só os dela; contexto de plataforma vê todos; **escrita cruzada Beta → Alfa negada** ("violates row-level security policy for table customers"). Por API: administrador da Beta lendo cliente da Alfa → 404; VIEWER criando cliente → 403. A suíte de integração como papel sem posse segue como evidência complementar (123 suítes / 1802 testes).
+
+**Observação operacional (não explicada):** no banco novo, o primeiro `db:provision-context` (feito antes de conceder os privilégios ao papel de aplicação) deixou o contexto de plataforma **sem enxergar nenhum usuário** para o papel de aplicação; um segundo `db:provision-context` (que disse "provisionado") corrigiu. O CI e o `docker-compose` (que passam) não foram afetados, mas **a causa não foi investigada**; fica como ponto para o procedimento de implantação (conferir, com o papel de aplicação e depois de provisionar, que o contexto de plataforma enxerga dados).
+
+### 8.4 Regressão funcional e visual repetida
+
+Repetida com a API como papel de aplicação, no mesmo script: Admin Web 30/30 e Super Admin 24/24 rotas sem erro de página/console e sem rolagem horizontal (única resposta ≥ 400: o 403 de Canais, módulo desativado), login com senha errada/certa, TOTP, sair e acesso negado ao console para administrador de empresa (todos **ok**), 390 px (6/6), VIEWER 403, isolamento entre empresas 404. Evidências anteriores preservadas em `docs/evidencias/2026-10-22-regressao-next15-api-superusuario/` (não publicado). **Continua sem comparação por pixel; PDV Electron e apps Android continuam sem rodada própria.** Questão de UX registrada: a barra lateral lista páginas que o papel não pode abrir.
+
+### 8.5 Dependências e banco
+
+- [SEGURANCA_DEPENDENCIAS](SEGURANCA_DEPENDENCIAS.md): análise **por advisory** (12 pacotes, 25 advisories) com caminho, exposição, mitigação e testes. Estado: **96 (0 críticas, 69 altas, 27 moderadas)**, sem mudança nesta rodada; `uuid` e `turbo` não têm uso real; `xlsx`, Vite 8, React Router 7 e Next 16 dependem de decisão e teste.
+- Banco reconfirmado (`db:docs` em dry-run, banco recém-migrado): **113 tabelas = 113 modelos, 57 migrations, 0 sem RLS, 0 sem policy, 0 sem chave primária**; nenhum arquivo gerado foi regravado nesta rodada.
+
+### 8.6 Classificação das pendências
+
+| Pendência | Classe |
+|---|---|
+| Idempotência | **Resolvida com causa comprovada** |
+| Causa da falha do Workers Builds | **Resolvida com causa comprovada** (a correção é configuração manual no painel) |
+| `login-failed-audit` | **Mitigada, mas ainda não comprovada** |
+| Build do Admin Web (rede/fonte) | **Mitigada em parte; causa do CI não provada** |
+| E2E com RLS | **Comprovado em duas execuções contínuas**; execução única **pendente de ajuste do E2E** |
+| Cloudflare (deploy real, domínio, painel, Super Admin funcional) | **Bloqueada por autorização/credencial externa** |
+| Hospedar a fonte; `xlsx`; Vite 8; React Router 7; Next 16; Balcão (APK × web); barra lateral | **Dependente de decisão do responsável pelo produto** |
+| Google Cloud, domínio/HTTPS, backup externo + restauração, alertas, Super Admin real, assinatura PDV/Android, RPO/RTO | **Bloqueadas por infraestrutura ou autorização externa** |
+| PDV Electron e apps Android (rodada própria), regressão visual por pixel | **Pendentes de teste** |

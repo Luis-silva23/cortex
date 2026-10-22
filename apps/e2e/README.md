@@ -49,6 +49,8 @@ A suíte foi escrita para um banco de desenvolvimento antigo, que já tinha dado
 
 Se um desses falhar com "timeout esperando um elemento" ou "esperava > 0 e recebeu 0", confira primeiro esta tabela.
 
+**Duas configurações da API, duas execuções (2026-10-22):** com `REQUIRE_MFA_COMPANY_ADMIN=true`, `admin-web-flow` e `user-access-flow` reprovam (entram pela tela como `admin.alfa`, que não tem MFA, e caem na configuração de MFA); com a variável desligada, `mfa-privacy-image` reprova. Rode em duas execuções contínuas: (A) API com a variável, só `mfa-privacy-image`; (B) API sem a variável, `npx jest --runInBand --forceExit --testPathIgnorePatterns mfa-privacy-image`. Resultado de 2026-10-22, com a API como papel de banco **sem posse e sem BYPASSRLS**: A 6/6, B 87/87.
+
 ## Limite de requisições da API (causa de falha intermitente, 2026-10-14)
 
 A API limita **100 requisições por minuto por usuário** (balde `general`, bloqueio de 60 s) e todos os arquivos usam o mesmo usuário de
