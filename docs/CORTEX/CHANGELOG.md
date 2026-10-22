@@ -4,6 +4,16 @@ Rodada a rodada, do mais recente para o mais antigo. Cada correção de defeito 
 Até 2026-09-25 o detalhe (achado, prova, incidente) está no
 [registro de auditoria](historico/registro-de-auditoria-2026-09-14-a-25.md).
 
+## Cloudflare: Admin Web e Super Admin publicados no edge (conta temporária) e validados com a API real em HTTPS (2026-10-22)
+
+Detalhe em [CLOUDFLARE §10](CLOUDFLARE.md).
+
+| O quê |
+|---|
+| **Publicação real, temporária e sem custo:** `wrangler deploy --temporary` (conta temporária, 60 min, não reivindicada) para os dois Workers, com a API **em modo de produção** (papel de banco sem posse, MFA e HTTPS obrigatórios, CORS só das origens dos Workers) exposta **só ela** por túnel `cloudflared` temporário (binário oficial, SHA-256 conferido), encerrado ao final. |
+| **Resultado:** cabeçalhos/CSP 6/6, CORS 3/3 (origem desconhecida bloqueada), Admin Web com MFA obrigatório + TOTP + sair + novo login + 6/6 rotas (teste enxuto) e 15/20 na varredura longa (o resto foi **429 do limite da conta temporária**), Super Admin com senha + TOTP + 16/16 rotas + sair + administrador de empresa barrado, isolamento Alfa × Beta 5/5 pela API pública, 390 px sem rolagem. **Não é produção:** a API era a máquina local; falta conta permanente, API permanente (Google Cloud) e domínio. Vercel + Neon **não** foram iniciados (a Cloudflare não está bloqueada tecnicamente). |
+| **Observação corrigida:** a "anomalia" do provisionamento do contexto de RLS era do meu `env.sh` (gerava segredos novos a cada uso); a API em produção recusou subir com o segredo errado, como deve. Ver [HOMOLOGACAO_POS_NEXT15 §8.3](HOMOLOGACAO_POS_NEXT15.md). |
+
 ## Segunda rodada de homologação: Cloudflare, falhas intermitentes e E2E com RLS (2026-10-22)
 
 Detalhe em [HOMOLOGACAO_POS_NEXT15 §8](HOMOLOGACAO_POS_NEXT15.md), [CLOUDFLARE](CLOUDFLARE.md) e [SEGURANCA_DEPENDENCIAS](SEGURANCA_DEPENDENCIAS.md).
