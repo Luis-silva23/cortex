@@ -190,7 +190,13 @@ jobs:
         if: always()
         run: |
           f=docs/CORTEX/revisao-banco/role-split-resultado.md
-          if [ -n "$(git status --porcelain -- "$f")" ]; then cat "$f" >> "$GITHUB_STEP_SUMMARY"; else echo "O script não gravou um relatório novo nesta execução." >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -n "$(git status --porcelain -- "$f")" ]; then
+            cat "$f" >> "$GITHUB_STEP_SUMMARY"
+            # anotações são públicas (o log não): suítes/testes reprovados e itens ❌ do relatório
+            grep -E '^(FAIL |  ● |- ❌)' "$f" | sort -u | head -9 | while IFS= read -r l; do echo "::error title=role-split::${l:0:230}"; done || true
+          else
+            echo "O script não gravou um relatório novo nesta execução." >> "$GITHUB_STEP_SUMMARY"
+          fi
       # Removida uma 2ª execução da MESMA suíte como superusuário ("rápida"): ela não prova RLS e reprova por construção os testes que exigem que a RLS
       # NEGUE acesso (superusuário ignora RLS: monitoring-thresholds-alerts e policies-foundation falham só por isso — reproduzido). A suíte completa já
       # roda no passo acima, com o papel mais restritivo, então nenhuma cobertura se perde.
