@@ -34,7 +34,8 @@ services:
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      # postgres:18+ guarda os dados em /var/lib/postgresql/18/docker e RECUSA iniciar com o volume em .../data (reproduzido no GitHub Actions)
+      - postgres_data:/var/lib/postgresql
       # roda UMA vez, na primeira inicialização do volume (cria dono/API/backup; ver o comentário do próprio script)
       - ./deploy/postgres-init/10-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
     healthcheck:
