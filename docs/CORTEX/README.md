@@ -20,6 +20,8 @@ Toda a documentação do produto fica aqui. Comece por [CORTEX_BRAIN](CORTEX_BRA
 | [DIAGNOSTICO_PRODUCAO](DIAGNOSTICO_PRODUCAO.md) | Diagnóstico independente de prontidão para produção (Fase 4): o que foi auditado, corrigido e provado, o que depende de infraestrutura ou de decisão do dono, pendências P0 a P3 e o veredito. |
 | [INTEGRATION_GATEWAY](INTEGRATION_GATEWAY.md) | Integration Gateway (Fase 3): contrato genérico de provedor, webhook assinado idempotente, consulta periódica, caixa de saída com retentativa, política de falha, segurança e como implementar um provedor real. |
 | [commerce-api.openapi.yaml](commerce-api.openapi.yaml) | Contrato OpenAPI da Commerce API (`/commerce/v1`): autenticação por assinatura, recursos, erros. |
+| [GOOGLE_CLOUD](GOOGLE_CLOUD.md) | **Destino de implantação atual (2026-10-22):** requisitos reais por componente, VM + compose (comprovado) × serviços gerenciados (a adaptar), rede/HTTPS/CORS, segredos, backups, custos de referência. Nada foi criado no Google Cloud. |
+| [CONSOLIDACAO_PASTAS](CONSOLIDACAO_PASTAS.md) | Qual pasta é a principal (`CORTEX-publicacao`), os 328 itens pendentes contabilizados, backup do estado anterior e como recuperar o histórico de 314 commits. |
 | [SECURITY](SECURITY.md) | Autenticação, MFA, isolamento, permissões, segredos (`DATA_ENCRYPTION_KEY`), auditoria, limites. |
 | [DATABASE](DATABASE.md) | Migrações, RLS, livro de estoque, backup e restauração. |
 | [BANCO_DE_DADOS](BANCO_DE_DADOS.md) | Inventário das 107 tabelas (finalidade, relacionamentos, RLS), migrações por ambiente, diferenças conhecidas entre schema e banco, lacunas por decisão e o que falta para staging/produção. |
