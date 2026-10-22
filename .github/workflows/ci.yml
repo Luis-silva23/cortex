@@ -215,8 +215,21 @@ jobs:
       - run: npm run build --workspace=@ln-system/shared
       - run: npm run build --workspace=@ln-system/database
       - run: npm run build --workspace=@ln-system/api
-      - run: npm run build --workspace=@ln-system/admin-web
-      - run: npm run build --workspace=@ln-system/super-admin
+      # O log do job exige login; se o build do Next falhar, as linhas de erro vão para anotações públicas (uma falha intermitente do
+      # build do Admin Web em 2026-10-22 não deixou nenhuma pista pública). O código de saída do build é preservado.
+      - name: Build Admin Web e Super Admin (erros do build como anotações)
+        run: |
+          rc=0
+          for w in admin-web super-admin; do
+            npm run build --workspace=@ln-system/$w 2>&1 | tee "/tmp/build-$w.log"
+            code=${PIPESTATUS[0]}
+            if [ "$code" -ne 0 ]; then
+              rc=$code
+              grep -iE 'error|failed|cannot|timeout|ENOTFOUND|ECONN|fetch' "/tmp/build-$w.log" | head -6 | while IFS= read -r l; do echo "::error title=build $w::${l:0:230}"; done
+              break
+            fi
+          done
+          exit $rc
       - name: Build Balcão (VITE_API_URL é fixado no build; https obrigatório em produção — valor de validação, nunca um domínio real)
         run: npm run build --workspace=@ln-system/balcao
         env:
