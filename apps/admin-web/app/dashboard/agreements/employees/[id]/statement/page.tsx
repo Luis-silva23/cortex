@@ -1,5 +1,6 @@
 'use client';
 
+import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Printer } from 'lucide-react';
@@ -9,7 +10,8 @@ import { getApiErrorMessage } from '@/lib/errors';
 import { agreementsApi, brl, DEDUCTION_STATUS_LABEL, formatCompetence, Statement } from '@/lib/api/agreements';
 
 // Espelho/comprovante do convênio do funcionário numa competência — página para imprimir e entregar ao funcionário.
-export default function EmployeeStatementPage({ params }: { params: { id: string } }) {
+export default function EmployeeStatementPage() {
+  const params = useParams() as { id: string };
   const [competence, setCompetence] = useState('');
   const [data, setData] = useState<Statement | null>(null);
   const [error, setError] = useState<string | null>(null);

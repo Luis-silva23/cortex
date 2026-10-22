@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { AlertCircle, ArrowLeft, Save } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -20,7 +20,8 @@ import { CustomerFormData, CustomerFormErrors, customerToForm, EMPTY_CUSTOMER_FO
 
 type LoadState = 'loading' | 'ready' | 'not-found' | 'error';
 
-export default function EditCustomerPage({ params }: { params: { id: string } }) {
+export default function EditCustomerPage() {
+  const params = useParams() as { id: string };
   const router = useRouter();
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [loadError, setLoadError] = useState<string | null>(null);

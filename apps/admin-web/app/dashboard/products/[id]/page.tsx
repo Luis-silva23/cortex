@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import { ArrowLeft, Save, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,8 @@ import {
   statusFromIsActive,
 } from '@/lib/cadastros';
 
-export default function EditProductPage({ params }: { params: { id: string } }) {
+export default function EditProductPage() {
+  const params = useParams() as { id: string };
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);

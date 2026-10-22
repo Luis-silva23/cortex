@@ -1,5 +1,6 @@
 'use client';
 
+import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Lock, Unlock } from 'lucide-react';
@@ -17,7 +18,8 @@ import { agreementsApi, brl, COMPANY_STATUS_LABEL, CompanyDetail } from '@/lib/a
 
 const RECEIVABLE_STATUS: Record<string, string> = { PENDING: 'Em aberto', OVERDUE: 'Vencida', PAID: 'Recebida', CANCELLED: 'Cancelada' };
 
-export default function AgreementCompanyPage({ params }: { params: { id: string } }) {
+export default function AgreementCompanyPage() {
+  const params = useParams() as { id: string };
   const [data, setData] = useState<CompanyDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<'block' | 'unblock' | null>(null);

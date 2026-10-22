@@ -1,5 +1,6 @@
 'use client';
 
+import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Printer } from 'lucide-react';
@@ -11,7 +12,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { getApiErrorMessage } from '@/lib/errors';
 import { agreementsApi, brl, DEDUCTION_STATUS_LABEL, EMPLOYEE_STATUS_LABEL, EmployeeDetail, formatCompetence } from '@/lib/api/agreements';
 
-export default function EmployeeAgreementPage({ params }: { params: { id: string } }) {
+export default function EmployeeAgreementPage() {
+  const params = useParams() as { id: string };
   const [data, setData] = useState<EmployeeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);

@@ -1,5 +1,6 @@
 'use client';
 
+import { useParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, MessageCircle, Send } from 'lucide-react';
@@ -27,7 +28,8 @@ const newKey = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? 
 // Detalhe da conta a receber + COBRANÇA MANUAL: uma pessoa autorizada escolhe o(s) canal(is) e confirma; sai UMA mensagem
 // por canal nesta ação. WhatsApp (provisório, sem API oficial): o CÓRTEX gera o link e esta tela abre o WhatsApp do
 // usuário com a mensagem pronta — quem envia é o usuário. E-mail sem provedor configurado: registrado como "não enviado".
-export default function ReceivableDetailPage({ params }: { params: { id: string } }) {
+export default function ReceivableDetailPage() {
+  const params = useParams() as { id: string };
   const [data, setData] = useState<ReceivableDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [userType, setUserType] = useState<string | null>(null);
