@@ -7,10 +7,9 @@ name: CI
 # Falha em qualquer job aqui bloqueia o merge se branch protection exigir
 # estes checks (configuração do repositório, fora do escopo deste arquivo).
 #
-# NUNCA testado rodando de verdade neste ambiente (sem acesso à internet/
-# GitHub Actions daqui) — sintaxe e lógica revisadas manualmente, mas só
-# uma execução real no GitHub confirma. BLOCKED BY ENVIRONMENT para
-# validação end-to-end deste arquivo.
+# Executado no GitHub (histórico em docs/CORTEX/CHANGELOG.md, 2026-10-21): a 1ª execução reprovou 4 jobs por defeitos de configuração, já corrigidos
+# e reproduzidos localmente; as execuções seguintes aprovaram os 7 jobs, com UMA reprovação isolada da suíte completa de integração
+# (causa não identificada). Isto prova o pipeline, não a prontidão para produção.
 
 on:
   push:
