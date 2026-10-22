@@ -29,6 +29,17 @@ describe('Idempotency-Key (integração real)', () => {
     bypass(() => db.cashRegister.updateMany({ where: { companyId: fixture.companyId, status: 'OPEN' }, data: { status: 'CLOSED', closedAt: new Date() } }));
   const keyRow = (key: string) =>
     bypass<any>(() => db.idempotencyKey.findUnique({ where: { companyId_endpoint_key: { companyId: fixture.companyId, endpoint: ENDPOINT, key } } }));
+  // O middleware grava o resultado (COMPLETED) SEM esperar: `res.json` dispara o `update` e já responde (idempotency.ts). Quem lê a chave ou
+  // repete a requisição logo depois da resposta corre contra essa gravação (falha intermitente no CI, 2026-10-22: `Expected "COMPLETED"
+  // Received "PENDING"`; reproduzida de forma determinística atrasando o `update`). Aqui se espera, com limite, a gravação terminar.
+  const waitStatus = async (key: string, status: string) => {
+    let row = await keyRow(key);
+    for (let i = 0; i < 100 && row?.status !== status; i++) {
+      await new Promise((r) => setTimeout(r, 50));
+      row = await keyRow(key);
+    }
+    return row;
+  };
   const failedKey = (key: string, body: Record<string, unknown>) =>
     bypass(() =>
       db.idempotencyKey.create({
@@ -67,27 +78,30 @@ describe('Idempotency-Key (integração real)', () => {
     const body = { branchId: fixture.branchId, registerNumber: 41, openingAmount: 10 };
     const first = await open('idem-replay', body);
     expect(first.status).toBe(201);
+    expect((await waitStatus('idem-replay', 'COMPLETED')).status).toBe('COMPLETED');
     await closeAll();
     const again = await open('idem-replay', body);
     expect(again.status).toBe(201);
     expect(again.body.id).toBe(first.body.id);
     expect(await registers(41)).toBe(1);
-    expect((await keyRow('idem-replay')).status).toBe('COMPLETED');
+    expect((await waitStatus('idem-replay', 'COMPLETED')).status).toBe('COMPLETED');
   });
 
   it('chave VENCIDA (expiresAt no passado): a janela de 24 h acabou — a mesma chave executa de novo e NÃO devolve a resposta antiga', async () => {
     const body = { branchId: fixture.branchId, registerNumber: 61, openingAmount: 10 };
     const first = await open('idem-expired', body);
     expect(first.status).toBe(201);
+    await waitStatus('idem-expired', 'COMPLETED');
     await closeAll();
-    await bypass(() =>
+    const expired = await bypass<{ count: number }>(() =>
       db.idempotencyKey.updateMany({ where: { companyId: fixture.companyId, endpoint: ENDPOINT, key: 'idem-expired' }, data: { expiresAt: new Date(Date.now() - 1000) } })
     );
+    expect(expired.count).toBe(1); // sem isto, um vencimento que não gravou viraria "replay" sem explicação
     const again = await open('idem-expired', body);
     expect(again.status).toBe(201);
     expect(again.body.id).not.toBe(first.body.id); // operação nova, não replay
     expect(await registers(61)).toBe(2);
-    const row = await keyRow('idem-expired');
+    const row = await waitStatus('idem-expired', 'COMPLETED');
     expect(row.status).toBe('COMPLETED');
     expect(row.expiresAt.getTime()).toBeGreaterThan(Date.now()); // janela nova
   });
@@ -106,7 +120,7 @@ describe('Idempotency-Key (integração real)', () => {
     const res = await open('idem-failed', body);
     expect(res.status).toBe(201);
     expect(await registers(44)).toBe(1);
-    const row = await keyRow('idem-failed');
+    const row = await waitStatus('idem-failed', 'COMPLETED');
     expect(row.status).toBe('COMPLETED');
     expect(row.responseStatus).toBe(201);
 
