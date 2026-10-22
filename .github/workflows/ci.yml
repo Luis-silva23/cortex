@@ -18,6 +18,10 @@ on:
   pull_request:
     branches: [main, master]
 
+# Menor privilégio: nenhum job escreve no repositório nem usa segredo; o GITHUB_TOKEN só precisa ler o código.
+permissions:
+  contents: read
+
 env:
   NODE_VERSION: '20'
 
@@ -32,6 +36,13 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      # `@ln-system/database` e `@ln-system/shared` são consumidos COMPILADOS (main: dist/index.js) e o cliente Prisma não vem do `npm ci`:
+      # sem este passo o typecheck e os testes falham com "Cannot find module '@ln-system/database'" e "Prisma ... does not exist" (reproduzido).
+      - name: Gerar o cliente Prisma e compilar shared/database
+        run: |
+          npx prisma generate --schema=packages/database/prisma/schema.prisma
+          npm run build --workspace=@ln-system/shared
+          npm run build --workspace=@ln-system/database
       - name: Lint API
         run: npm run lint --workspace=@ln-system/api
       - name: Lint Admin Web
@@ -60,6 +71,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      - name: Gerar o cliente Prisma e compilar shared/database
+        run: |
+          npx prisma generate --schema=packages/database/prisma/schema.prisma
+          npm run build --workspace=@ln-system/shared
+          npm run build --workspace=@ln-system/database
       - name: Run API unit test suite (mocked Prisma/Redis — see jest.config.js)
         run: npm test --workspace=@ln-system/api
       - name: Run Admin Web unit tests
@@ -106,6 +122,11 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
       - run: npm ci
+      - name: Gerar o cliente Prisma e compilar shared/database
+        run: |
+          npx prisma generate --schema=packages/database/prisma/schema.prisma
+          npm run build --workspace=@ln-system/shared
+          npm run build --workspace=@ln-system/database
       - name: Write apps/api/.env for the real Postgres/Redis service containers
         working-directory: apps/api
         run: |
@@ -131,11 +152,29 @@ jobs:
           DATABASE_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/lnsystem_db?schema=public"
         run: npx prisma migrate deploy --schema=packages/database/prisma/schema.prisma
       # Invariantes de RLS (toda tabela com companyId tem RLS FORCE + policy): falha o pipeline se uma migration nova esquecer.
-      - name: Check RLS invariants
+      # O verificador RECUSA de propósito um superusuário/BYPASSRLS ("a role de conexão não pode ignorar RLS") e exige o contexto assinado provisionado;
+      # com o superusuário `lnsystem` do serviço Postgres este passo falhava com 3 achados verdadeiros (reproduzido). Fluxo de produção: o DONO migra e
+      # provisiona o segredo (db:provision-context); o papel de execução (deploy/db-runtime-role.sql) só faz DML e é quem roda a verificação.
+      - name: Check RLS invariants (papel de execução sem posse, contexto assinado provisionado)
         working-directory: apps/api
         env:
           DATABASE_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/lnsystem_db?schema=public"
-        run: npm run db:check-rls
+          PGPASSWORD: lnsystem123
+        run: |
+          set -e
+          npm run db:provision-context
+          psql -h localhost -U lnsystem -d lnsystem_db -v ON_ERROR_STOP=1 -q <<'SQL'
+          CREATE ROLE cortex_ci_runtime LOGIN PASSWORD 'ci-only-runtime-role' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOINHERIT;
+          REVOKE ALL ON DATABASE lnsystem_db FROM PUBLIC;
+          GRANT CONNECT ON DATABASE lnsystem_db TO cortex_ci_runtime;
+          REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+          GRANT USAGE ON SCHEMA public TO cortex_ci_runtime;
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO cortex_ci_runtime;
+          REVOKE ALL ON TABLE public."_prisma_migrations" FROM cortex_ci_runtime;
+          GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO cortex_ci_runtime;
+          GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO cortex_ci_runtime;
+          SQL
+          DATABASE_URL="postgresql://cortex_ci_runtime:ci-only-runtime-role@localhost:5432/lnsystem_db?schema=public" npm run db:check-rls
       # O usuário `lnsystem` do serviço Postgres é SUPERUSUÁRIO: superusuário e dono das tabelas IGNORAM a RLS, então uma suíte rodada com ele passa
       # mesmo com a RLS quebrada (falso resultado). Por isso a suíte COMPLETA roda aqui como o papel de execução SEM posse e SEM BYPASSRLS
       # (`db:role-split-check --all`: aplica as migrations como dono, cria banco+papel temporários, prova que o papel não escala privilégio e roda
@@ -146,8 +185,9 @@ jobs:
           CORTEX_DB_ADMIN_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/postgres"
           DATABASE_URL: "postgresql://lnsystem:lnsystem123@localhost:5432/lnsystem_db?schema=public"
         run: npm run db:role-split-check -- --all
-      - name: Run integration test suite (rápida, como superusuário — NÃO prova RLS; só regressão funcional)
-        run: npm run test:integration --workspace=@ln-system/api
+      # Removida uma 2ª execução da MESMA suíte como superusuário ("rápida"): ela não prova RLS e reprova por construção os testes que exigem que a RLS
+      # NEGUE acesso (superusuário ignora RLS: monitoring-thresholds-alerts e policies-foundation falham só por isso — reproduzido). A suíte completa já
+      # roda no passo acima, com o papel mais restritivo, então nenhuma cobertura se perde.
 
   build:
     name: Build
@@ -240,13 +280,19 @@ jobs:
           BACKUP_KEY_FILE: /tmp/ci-backup.key
           ORIGIN_CERT_DIR: /tmp/ci-origin-certs
           PUBLIC_API_URL: https://api.ci.invalid
+          WAL_KEY_FILE: /tmp/ci-wal.key
         run: |
           set -e
-          touch /tmp/ci-backup.key && mkdir -p /tmp/ci-origin-certs
+          touch /tmp/ci-backup.key /tmp/ci-wal.key && mkdir -p /tmp/ci-origin-certs
+          # O serviço `api` declara `env_file: .env` (não versionado). O fluxo documentado é copiar o .env.example: sem o arquivo o
+          # `docker compose config` falha com "env file .env not found" (reproduzido). Só valores de exemplo; nenhum segredo real.
+          cp .env.example .env
           docker compose version
           docker compose -f docker-compose.yml config -q
           docker compose -f docker-compose.yml -f docker-compose.staging.yml config -q
           docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.cloudflare.yml -f docker-compose.free.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.wal.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.staging.yml -f docker-compose.cloudflare.yml -f docker-compose.free.yml -f docker-compose.wal.yml config -q
       - uses: docker/setup-buildx-action@v3
       - name: Build backup image (rclone, openssl, cron)
         uses: docker/build-push-action@v5

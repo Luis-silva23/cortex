@@ -68,6 +68,7 @@ async function main() {
     throw new Error(`o banco temporário "${dbName}" já existe — recusado (não apago o que não criei).`);
   }
   const owner = decodeURIComponent(new URL(devUrl).username);
+  const adminRole = decodeURIComponent(new URL(adminUrl).username);
   const ownerUrlTmp = withDatabase(devUrl, dbName);
   const appUrlTmp = withDatabase(devUrl, dbName, roleName, rolePass);
   const lines: string[] = [];
@@ -196,7 +197,10 @@ async function main() {
       ['substituir o verificador (CREATE OR REPLACE FUNCTION app_ctx._sig_ok)', "CREATE OR REPLACE FUNCTION app_ctx._sig_ok() RETURNS boolean LANGUAGE sql AS 'SELECT true'"],
       ['criar função no schema do verificador', "CREATE FUNCTION app_ctx.intruso() RETURNS int LANGUAGE sql AS 'SELECT 1'"],
       ['criar objetos temporários (sequestro de search_path via pg_temp)', 'CREATE TEMP TABLE intruso (x int)'],
-      ['assumir outro papel (SET ROLE)', 'SET ROLE postgres'],
+      // papéis que EXISTEM neste servidor (o superusuário administrativo da CORTEX_DB_ADMIN_URL e o dono das tabelas): com um nome fixo
+      // inexistente ("postgres") o erro vira "role does not exist" e a prova de negação falha por motivo errado
+      ['assumir o papel administrativo (SET ROLE)', `SET ROLE "${adminRole}"`],
+      ['assumir o papel dono das tabelas (SET ROLE)', `SET ROLE "${owner}"`],
     ] as const) {
       const r = await denied(sql);
       check(`negado ao papel de execução: ${label}`, r.denied, r.denied ? '' : r.msg);
@@ -218,7 +222,9 @@ async function main() {
       const tests = (out.match(/Tests:\s+([^\n]+)/) ?? [])[1] ?? '?';
       const suites = (out.match(/Test Suites:\s+([^\n]+)/) ?? [])[1] ?? '?';
       check(`suíte de integração real (${every ? 'COMPLETA' : `${SUITES.length} arquivos`}) com a aplicação como papel SEM posse`, run.status === 0, `Test Suites: ${suites}; Tests: ${tests}`);
-      if (run.status !== 0) lines.push('```\n' + redact(out).split('\n').filter((l) => /FAIL|●.*›|Expected|Received/.test(l)).slice(0, 25).join('\n') + '\n```');
+      // só as linhas do Jest (suíte reprovada, teste reprovado, esperado/recebido): o filtro antigo casava "..._FAILED" dos avisos do logger,
+      // que esgotavam o limite de linhas e escondiam suítes reprovadas
+      if (run.status !== 0) lines.push('```\n' + redact(out).split('\n').filter((l) => /^\s*FAIL\s|^\s*●.*›|^\s+(Expected|Received)\b/.test(l)).slice(0, 60).join('\n') + '\n```');
     } else {
       lines.push('- ℹ️ suíte de integração com o papel de execução: não executada nesta chamada (usar `-- --suites`).');
     }
