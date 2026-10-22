@@ -9,6 +9,8 @@ on:
     paths:
       - 'apps/admin-web/wrangler.jsonc'
       - 'apps/super-admin/wrangler.jsonc'
+      - 'apps/admin-web/open-next.config.ts'
+      - 'apps/super-admin/open-next.config.ts'
       - '.github/workflows/cloudflare-homologacao.yml'
 
 permissions:
@@ -39,22 +41,26 @@ jobs:
       - run: npm ci
       - name: Compilar shared
         run: npx prisma generate --schema=packages/database/prisma/schema.prisma && npm run build --workspace=@ln-system/shared
+      # --no-save: instala o adaptador e o Wrangler em node_modules SEM tocar em package.json/package-lock.json (o OpenNext exige o pacote
+      # resolvível a partir do app, porque lê `open-next.config.ts`, que importa `defineCloudflareConfig`).
+      - name: Instalar o adaptador e o Wrangler (só no runner, sem salvar)
+        run: npm install --no-save --workspace=@ln-system/${{ matrix.app }} @opennextjs/cloudflare@${OPENNEXT_VERSION} wrangler@${WRANGLER_VERSION}
       - name: Build OpenNext
         working-directory: apps/${{ matrix.app }}
         run: |
           set -o pipefail
-          npx --yes @opennextjs/cloudflare@${OPENNEXT_VERSION} build 2>&1 | tee /tmp/opennext.log
+          npx opennextjs-cloudflare build 2>&1 | tee /tmp/opennext.log
       - name: Dry-run do deploy (valida pacote e limites; não envia nada)
         working-directory: apps/${{ matrix.app }}
         run: |
           set -o pipefail
-          npx --yes wrangler@${WRANGLER_VERSION} deploy --dry-run --outdir /tmp/wrangler-out 2>&1 | tee /tmp/dryrun.log
+          npx wrangler deploy --dry-run --outdir /tmp/wrangler-out 2>&1 | tee /tmp/dryrun.log
           ls -l /tmp/wrangler-out/worker.js
           gzip -c /tmp/wrangler-out/worker.js | wc -c | awk '{printf "worker.js gzip: %.2f MiB\n", $1/1048576}'
       - name: Executar no workerd (local) e consultar
         working-directory: apps/${{ matrix.app }}
         run: |
-          npx --yes wrangler@${WRANGLER_VERSION} dev --local --port 8787 --ip 127.0.0.1 > /tmp/wrangler-dev.log 2>&1 &
+          npx wrangler dev --local --port 8787 --ip 127.0.0.1 > /tmp/wrangler-dev.log 2>&1 &
           echo $! > /tmp/wrangler.pid
           for i in $(seq 1 60); do
             code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 http://127.0.0.1:8787/login || true)
