@@ -1,0 +1,86 @@
+name: Stack (compose real)
+
+# Sobe a pilha REAL do docker-compose (PostgreSQL 18 com papéis separados, Redis, migrate, db-grants, API, Admin Web, Super Admin, Balcão, backup e WAL)
+# num runner com Docker e roda deploy/homologacao/validar-homologacao.sh (PASS/FAIL por item: papéis, RLS e contexto assinado, isolamento da credencial de
+# backup, backup delegado, WAL/PITR). Também testa deploy/oci/gen-env.sh em Linux. Só dados sintéticos: banco novo, segredos aleatórios gerados nesta execução
+# e descartados no fim (`down -v`). NÃO prova HTTPS, domínio, DNS, cópia off-site do backup nem produção: isso exige o servidor real.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'docker-compose*.yml'
+      - 'apps/*/Dockerfile'
+      - 'deploy/**'
+      - 'packages/database/prisma/**'
+      - '.github/workflows/stack-smoke.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stack:
+    name: Pilha real (compose + validar-homologacao.sh --wal)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Gerar .env aleatório (gen-env.sh) e as chaves de backup/WAL
+        run: |
+          set -e
+          S="$RUNNER_TEMP/cortex-secrets"
+          bash deploy/oci/gen-env.sh ci.invalid "$S"
+          openssl rand -base64 48 | tr -d '\n' > "$S/wal.key"
+          chmod 600 "$S/wal.key"
+          sudo chown 70:70 "$S/backup.key" "$S/wal.key"
+          echo "WAL_KEY_FILE=$S/wal.key" >> .env
+          echo "PUBLIC_API_URL=https://api.ci.invalid" >> .env
+          docker compose version
+
+      - name: Validar a pilha (sobe, migra, confere papéis/RLS/backup/WAL)
+        id: validar
+        run: sh deploy/homologacao/validar-homologacao.sh --wal
+
+      - name: Front-ends e API respondem (portas publicadas do compose)
+        run: |
+          set -e
+          for t in "api http://127.0.0.1:3001/api/health/ready" "admin-web http://127.0.0.1:3002/login" "super-admin http://127.0.0.1:3000/login" "balcao http://127.0.0.1:5174/"; do
+            n=${t%% *}; u=${t#* }; ok=0
+            for i in $(seq 1 24); do
+              c=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$u" || true)
+              if [ "$c" = "200" ]; then ok=1; break; fi
+              sleep 5
+            done
+            echo "$n $u -> HTTP ${c:-?}"
+            [ "$ok" = 1 ] || { echo "::error title=stack::$n não respondeu 200 em $u (último: ${c:-?})"; exit 1; }
+          done
+
+      - name: Relatório (resumo e anotações públicas)
+        if: always()
+        run: |
+          r=$(ls -1 validacao-homologacao-*.txt 2>/dev/null | tail -1 || true)
+          if [ -n "$r" ]; then
+            { echo '### validar-homologacao.sh --wal'; echo '```'; sed -e 's/\x1b\[[0-9;]*m//g' "$r" | tail -150; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            grep -E '^(FAIL|== RESULTADO)' "$r" | head -9 | while IFS= read -r l; do echo "::error title=validar-homologacao::${l:0:230}"; done || true
+            echo "PASS: $(grep -c '^PASS' "$r")  FAIL: $(grep -c '^FAIL' "$r")"
+          else
+            echo "::error title=stack::o roteiro não gerou relatório"
+          fi
+
+      - name: Estado e logs dos contêineres (só se algo falhou)
+        if: failure()
+        run: |
+          docker ps -a --format 'table {{.Names}}\t{{.Status}}' | head -20
+          for s in migrate db-grants api backup postgres; do
+            echo "----- $s"
+            docker compose -f docker-compose.yml -f docker-compose.wal.yml logs --tail 40 "$s" 2>&1 | sed -e 's/\x1b\[[0-9;]*m//g' | tail -40
+            # anotação pública (o log exige login): últimas linhas do serviço numa só linha; logs destes serviços não imprimem segredo e os desta execução são descartáveis
+            m=$(docker compose -f docker-compose.yml -f docker-compose.wal.yml logs --tail 6 "$s" 2>&1 | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' | tr '\n\r' '  ' | cut -c1-900)
+            echo "::warning title=log-$s::$m"
+          done
+
+      - name: Derrubar e apagar volumes (dados e segredos descartáveis)
+        if: always()
+        run: docker compose -f docker-compose.yml -f docker-compose.wal.yml down -v --remove-orphans || true
