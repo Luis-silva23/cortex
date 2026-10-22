@@ -97,7 +97,7 @@ pedido (janela `sum() OVER (PARTITION BY segmento)`). Leitura dentro da transaç
 Índices usados: `(productId, createdAt)`, `(branchId, productId)`.
 
 Medido em 2026-09-27 com 20 001 movimentos de um produto: 371 ms (histórico inteiro no Node) → 34 ms
-([evidência](../evidencias/2026-09-27/01-performance-saldo-estoque.md)). O custo ainda cresce com o histórico dentro do
+(evidência (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-09-27/01-performance-saldo-estoque.md`)). O custo ainda cresce com o histórico dentro do
 banco; saldo materializado (tabela de saldo mantida na mesma transação do movimento) fica no [ROADMAP](ROADMAP.md).
 
 ## Backup e restauração

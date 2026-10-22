@@ -112,4 +112,4 @@ O painel gerencial vale só para Administrador e Gerente. Os demais continuam no
 
 - API: `utils/dashboard-period.ts` (regra única, +testes), `services/dashboard-management.service.ts`, `routes/dashboard.routes.ts`; testes `test/integration/dashboard-management.integration.test.ts`.
 - Admin Web: `lib/dashboard-management.ts`, `components/dashboard/*`, `components/charts/{TimeSeriesChart,ChartTooltip,DonutChart}.tsx`, `app/dashboard/page.tsx`.
-- Evidências visuais: [evidencias/2026-10-05-dashboard-gerencial](../evidencias/2026-10-05-dashboard-gerencial/RESULTADO.md).
+- Evidências visuais: evidencias/2026-10-05-dashboard-gerencial (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-10-05-dashboard-gerencial/RESULTADO.md`).

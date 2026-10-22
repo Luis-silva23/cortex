@@ -66,11 +66,11 @@ Executados em **2026-10-05** (nesta atualização, sem carga; só testes leves e
 | Navegador real (`walk-round2`) | 18/18 (PDV, convênios, devolução ao fornecedor, agenda) | 2026-09-28 |
 | **E2E de navegador no repositório** (`apps/e2e`, Chrome, dev + empresa demo) | **18/18 (3 arquivos)**: Ajuda e Console, categorias e artigos, botão do PDV com duplo clique, botões contextuais em OS, garantia da OS, cobrança e Pós-venda › Garantias; HTML no texto não executa; empresa B não abre chamado da empresa A; sem erro de página nem 5xx. Exige o ambiente de desenvolvimento no ar ([README](../../apps/e2e/README.md)); não roda no CI | 2026-10-04 |
 | Backup (`backup:verify`) | 18 verificações, banco temporário removido (restauração, RLS no restaurado, MFA recuperável com a chave certa e não sem ela) | 2026-10-04 |
-| Homologação visual do Dashboard gerencial | capturas 101–132; defeito do cabeçalho de erro corrigido (`fca2b8e`) ([HOMOLOGACAO_FINAL](../evidencias/2026-10-05-dashboard-gerencial/HOMOLOGACAO_FINAL.md)) | 2026-10-05 |
+| Homologação visual do Dashboard gerencial | capturas 101–132; defeito do cabeçalho de erro corrigido (`fca2b8e`) (HOMOLOGACAO_FINAL (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-10-05-dashboard-gerencial/HOMOLOGACAO_FINAL.md`)) | 2026-10-05 |
 
 Jornadas em navegador real com evidência: PDV completo, balcão/oficina, mecânico, cédulas, PIX, monitoramento, agenda,
 importação, PDV sem rede, desconto, caixa, conciliação, fiscal, orçamentos, garantia, cliente, convênios, cobrança, estados
-de pagamento do PDV, MFA do PDV, Configurações e o Dashboard gerencial ([evidências](../evidencias/README.md)).
+de pagamento do PDV, MFA do PDV, Configurações e o Dashboard gerencial (evidências (evidência arquivada fora do repositório publicado: `docs/evidencias/README.md`)).
 
 ## O que existe
 

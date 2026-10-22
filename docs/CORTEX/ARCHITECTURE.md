@@ -44,7 +44,7 @@ operação de modelo; transações usam `runInTransaction` (o contexto vale na c
 
 Filas: `email`, `report`, `notification`, `audit-log`, `request-metrics`, `system-log`. A auditoria e a métrica de
 requisição são enfileiradas sem segurar a resposta; se o Redis cair, ficam na fila offline do cliente Redis em memória e
-seguem quando ele volta ([evidência](../evidencias/2026-09-27/02-resiliencia-caos-controlado.md)).
+seguem quando ele volta (evidência (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-09-27/02-resiliencia-caos-controlado.md`)).
 
 Jobs recorrentes (`apps/api/src/config/scheduler.ts`):
 

@@ -8,7 +8,7 @@ Números da rodada anterior (Central de Ajuda), toda verde: API unitários 922/9
 integração (Postgres 18 + Redis reais, RLS pelo papel da aplicação) 1235/1235 (85 suítes); Admin Web **495/495**; PDV lógica
 **20/20**; `tsc` limpo em API, Admin Web, Super Admin, PDV, mobile e TV; smoke do Electron OK; `backup:verify` com 18 verificações;
 RLS em dev: todas as invariantes OK (91 tabelas, todas com RLS e FORCE, 105 policies); 203 links conferidos, 0 quebrados.
-Caminhadas no navegador real: [2026-09-27/politicas](../evidencias/2026-09-27/politicas/), [2026-09-28](../evidencias/2026-09-28/)
+Caminhadas no navegador real: 2026-09-27/politicas (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-09-27/politicas`), 2026-09-28 (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-09-28`)
 (`walk-round2`, 18/18). Para a Central de Ajuda, as caminhadas de 2026-10-04 viraram **testes de navegador no repositório**
 (`apps/e2e`, 18/18 em 3 arquivos, Chrome real contra o ambiente de desenvolvimento e a empresa demo; não rodam no CI porque
 precisam dos servidores no ar). O dado de demonstração agora inclui uma garantia (OS encerrada da Alfa), e os botões "OS → Garantia" e
@@ -29,7 +29,7 @@ Status: ✅ aprovado · ⚠️ aprovado com limitação externa (descrita) · �
 | Segredos cifrados (MFA, fiscal), migração `enc:v1` | `mfa-secret-at-rest`, `fiscal-config-secrets`, `secret-migration`, `secret-box.test` | `secrets:encrypt --check` = 0 em dev e teste | passa | ✅ |
 | `DATA_ENCRYPTION_KEY` obrigatória, fora do repositório e dos logs | `secret-box.test` (sem chave/curta falha); varredura de arquivos rastreados | SECURITY; CI gera a chave por execução | nenhum `.env` real rastreado | ✅ |
 | Erro técnico nunca chega ao usuário; logs sem segredo | `translate-errors.test`, `errorHandler.test` | sondas reais (page inválida, Prisma, Zod) | passa | ✅ |
-| Limite de tentativas com Redis fora | `advancedRateLimit.redis-down.test` (vermelho antes) | [caos](../evidencias/2026-09-27/02-resiliencia-caos-controlado.md) | 5×401 depois 429 | ✅ |
+| Limite de tentativas com Redis fora | `advancedRateLimit.redis-down.test` (vermelho antes) | caos (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-09-27/02-resiliencia-caos-controlado.md`) | 5×401 depois 429 | ✅ |
 | Produção com migrações, segredos e expurgo de auditoria antiga | — | [ROADMAP](ROADMAP.md) P1–P3 | sem acesso ao ambiente | ⚠️ |
 
 ## Backend

@@ -92,7 +92,7 @@ README e CODE_MAP não citavam SUPPORT, HML, e2e nem os novos documentos; meu ma
 ## 9.1 Atualização — rodada do grupo A e do painel (2026-10-04, depois deste relatório)
 
 Executados os itens A1 a A5 e A6 (parcial: `next start` usado nas capturas), mais a correção visual do painel. Resultados e evidências: [CHANGELOG](CHANGELOG.md), [FRONTEND](FRONTEND.md),
-[DIAGNOSTICO_FASE6](DIAGNOSTICO_FASE6.md) e [evidências](../evidencias/README.md). Pontos que mudam este relatório:
+[DIAGNOSTICO_FASE6](DIAGNOSTICO_FASE6.md) e evidências (evidência arquivada fora do repositório publicado: `docs/evidencias/README.md`). Pontos que mudam este relatório:
 
 - **Causa confirmada** dos 503 `P1001` do painel: rajada de conexões com o pool frio (5 s do Prisma) com o Postgres de pé; o `P1017` de 16:40 segue aberto. Decisão nova 57 (pool) e 58 (fuso do dia).
 - **Corrigido:** `infra.js` (pronto de verdade + log), `rls.js`, `ui-evidence.js`, "Importar" para o Visualizador, `payments.js`, API HML com tempos de conexão maiores, painel com linha/barras na identidade da marca e evolução da receita para Gerente e empresa de uma filial.

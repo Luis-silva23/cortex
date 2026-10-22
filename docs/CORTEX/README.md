@@ -24,7 +24,7 @@ Toda a documentação do produto fica aqui. Comece por [CORTEX_BRAIN](CORTEX_BRA
 | [DATABASE](DATABASE.md) | Migrações, RLS, livro de estoque, backup e restauração. |
 | [BANCO_DE_DADOS](BANCO_DE_DADOS.md) | Inventário das 107 tabelas (finalidade, relacionamentos, RLS), migrações por ambiente, diferenças conhecidas entre schema e banco, lacunas por decisão e o que falta para staging/produção. |
 | [MAPA_RELACIONAMENTOS](MAPA_RELACIONAMENTOS.md) | Mapa de relacionamentos do banco: cadeias empresa → filial → usuário → produto → estoque → venda → caixa → compra → pagamento, todas as FKs (com a regra ao apagar), relações só lógicas (sem FK) e diagramas Mermaid por domínio. Gerado do catálogo. |
-| [RELATORIO_MIGRATIONS](RELATORIO_MIGRATIONS.md) | As 55 migrations: ordem de execução, finalidade, tabelas e estruturas afetadas, aplicação por ambiente (dev, teste, staging/produção), checksums e divergências; prova de reaplicação do zero. Gerado. |
+| [RELATORIO_MIGRATIONS](RELATORIO_MIGRATIONS.md) | As 57 migrations: ordem de execução, finalidade, tabelas e estruturas afetadas, aplicação por ambiente (dev, teste, staging/produção), checksums e divergências; prova de reaplicação do zero. Gerado. |
 | [REVISAO_BANCO_PENDENCIAS](REVISAO_BANCO_PENDENCIAS.md) | Revisão do banco: registro de achados (A/B/C, D-01…D-11, E-01…E-05) com estado **corrigido / pendente de decisão / pendente de infraestrutura**, o que foi implementado, testado e o que precisa de validação externa; achados automáticos do catálogo. |
 | [RELATORIO_EXECUCAO_REVISAO_BANCO](RELATORIO_EXECUCAO_REVISAO_BANCO.md) | Relatório de execução da correção completa do banco (2026-10-14/15): o que foi implementado por prioridade, arquivos, migrations, comandos, **falhas encontradas e correções** (falha → causa → correção → prova), pendências e garantias. |
 | [revisao-banco/](revisao-banco/LEIA-ME.md) | Pacote de revisão: cópia do `schema.prisma` e das migrations (com SHA-256), diff schema × banco, resultado da reaplicação do zero e dos 4 cenários com dado, prova dos papéis dono × execução e resultados de teste. Só estrutura e números. |
@@ -55,7 +55,7 @@ Toda a documentação do produto fica aqui. Comece por [CORTEX_BRAIN](CORTEX_BRA
 | [FINAL_ACCEPTANCE](FINAL_ACCEPTANCE.md) | Critérios objetivos de aceite por área, com teste, evidência e situação. |
 | [contracts/](contracts/) | Contratos normativos: permissões, escopo empresa/filial, máquinas de estado, módulos/licença, auditoria. |
 | [historico/](historico/) | Documentos antigos mantidos integralmente (não descrevem o estado atual). |
-| [../evidencias/](../evidencias/README.md) | Capturas e relatórios de prova, por rodada. |
+| ../evidencias/ (evidência arquivada fora do repositório publicado: `docs/evidencias/README.md`) | Capturas e relatórios de prova, por rodada. |
 
 ## Caminhos antigos
 

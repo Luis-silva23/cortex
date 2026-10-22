@@ -82,7 +82,7 @@ impressão, telemetria do equipamento (versão do app e do runtime).
 
 - **Sem rede:** busca de produto/cliente usa cache local (somente leitura). Venda, pagamento e caixa **nunca** são
   enfileirados para depois: a tela diz "Sem conexão com o servidor — a operação NÃO foi concluída" e nada é gravado; ao
-  voltar a rede, uma nova tentativa gera uma única venda ([evidência](../evidencias/2026-09-27/02-resiliencia-caos-controlado.md)).
+  voltar a rede, uma nova tentativa gera uma única venda (evidência (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-09-27/02-resiliencia-caos-controlado.md`)).
   Vender offline é feature pendente ([ROADMAP](ROADMAP.md)).
 - **Relatar problema** (`ReportProblemModal`, `services/support-report.ts`): botão no menu lateral e no modal de
   pagamento; envia tela, caixa (`Caixa #N`), venda e pagamento pendente; recusa cartão completo; mesma abertura reusa a

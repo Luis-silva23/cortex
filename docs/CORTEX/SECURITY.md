@@ -281,7 +281,7 @@ Detalhe em [APLICATIVOS](APLICATIVOS.md). O Balcão é um cliente da mesma API: 
   liberavam tudo) — o mesmo vale enquanto a conexão ainda está abrindo na partida; essa contagem não é somada com a do
   Redis quando ele volta. Auditoria e métricas ficam na fila em memória e seguem quando ele volta.
 - **Postgres fora:** respostas 503 `DATABASE_UNAVAILABLE` com `Retry-After` (antes 400/401/500 culpando o usuário); a
-  API volta sozinha. Evidência: [caos controlado](../evidencias/2026-09-27/02-resiliencia-caos-controlado.md).
+  API volta sozinha. Evidência: caos controlado (evidência arquivada fora do repositório publicado: `docs/evidencias/2026-09-27/02-resiliencia-caos-controlado.md`).
 
 ## Revisão de segurança e multi-tenant — 2026-10-04 (homologação)
 
