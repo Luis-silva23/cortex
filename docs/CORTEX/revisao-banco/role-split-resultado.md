@@ -1,4 +1,4 @@
-**Execução de 2026-10-20** (`npm run db:role-split-check`) — banco e papel temporários criados e removidos pelo script; dev/teste intocados. Resultado: **APROVADO**.
+**Execução de 2026-10-22** (`npm run db:role-split-check`) — banco e papel temporários criados e removidos pelo script; dev/teste intocados. Resultado: **APROVADO**.
 
 - ✅ migrations aplicadas pelo DONO no banco temporário vazio — 57 migrations found
 - ✅ papel de execução temporário criado com os GRANTs do modelo (DML; sem posse, sem DDL)
@@ -37,10 +37,11 @@
 - ✅ negado ao papel de execução: substituir o verificador (CREATE OR REPLACE FUNCTION app_ctx._sig_ok)
 - ✅ negado ao papel de execução: criar função no schema do verificador
 - ✅ negado ao papel de execução: criar objetos temporários (sequestro de search_path via pg_temp)
-- ✅ negado ao papel de execução: assumir outro papel (SET ROLE)
+- ✅ negado ao papel de execução: assumir o papel administrativo (SET ROLE)
+- ✅ negado ao papel de execução: assumir o papel dono das tabelas (SET ROLE)
 - ℹ️ Limite registrado (não é falha do teste): quem injeta SQL durante UMA requisição continua com o contexto daquela requisição e pode reutilizar a própria assinatura por até 120 s; não vira outro usuário, papel ou empresa. Quem executa código dentro do processo da API tem o segredo.
 - ✅ as funções auxiliares da RLS são executáveis pelo papel de execução
-- ✅ suíte de integração real (8 arquivos) com a aplicação como papel SEM posse — Test Suites: 8 passed, 8 total; Tests: 64 passed, 64 total
+- ✅ suíte de integração real (COMPLETA) com a aplicação como papel SEM posse — Test Suites: 123 passed, 123 total; Tests: 1802 passed, 1802 total
 - Banco e papel temporários removidos: sim.
 
 > Limite honesto: o contexto da RLS agora é ASSINADO (decisão 151): SQL arbitrário do papel de execução NÃO consegue virar outro papel, outra empresa nem outras filiais, nem ler o segredo, nem desligar a exigência. Continua possível, e não é evitável neste desenho: (a) reutilizar a assinatura da própria requisição por até 120 s; (b) quem executa código dentro do processo da API assina o que quiser (tem o segredo). A separação de papéis impede o DDL; a assinatura impede a falsificação do contexto; nada disso substitui não ter injeção de SQL.

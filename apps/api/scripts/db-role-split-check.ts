@@ -224,7 +224,18 @@ async function main() {
       check(`suíte de integração real (${every ? 'COMPLETA' : `${SUITES.length} arquivos`}) com a aplicação como papel SEM posse`, run.status === 0, `Test Suites: ${suites}; Tests: ${tests}`);
       // só as linhas do Jest (suíte reprovada, teste reprovado, esperado/recebido): o filtro antigo casava "..._FAILED" dos avisos do logger,
       // que esgotavam o limite de linhas e escondiam suítes reprovadas
-      if (run.status !== 0) lines.push('```\n' + redact(out).split('\n').filter((l) => /^\s*FAIL\s|^\s*●.*›|^\s+(Expected|Received)\b/.test(l)).slice(0, 60).join('\n') + '\n```');
+      // saída integral (já redigida) para diagnóstico local de falha intermitente; o relatório publicado fica só com o resumo
+      if (process.env.ROLE_SPLIT_FULL_LOG) fs.writeFileSync(process.env.ROLE_SPLIT_FULL_LOG, redact(out), 'utf8');
+      if (run.status !== 0) {
+        // além de suíte/teste reprovado, as 4 linhas seguintes de cada "●" (mensagem do erro): antes só havia o nome do teste e a causa se perdia
+        const all = redact(out).split('\n');
+        const keep: string[] = [];
+        all.forEach((l, i) => {
+          if (/^\s*FAIL\s|^\s+(Expected|Received)\b/.test(l)) keep.push(l);
+          else if (/^\s*●.*›/.test(l)) keep.push(l, ...all.slice(i + 1, i + 5).filter((m) => m.trim()).map((m) => m.slice(0, 200)));
+        });
+        lines.push('```\n' + keep.slice(0, 80).join('\n') + '\n```');
+      }
     } else {
       lines.push('- ℹ️ suíte de integração com o papel de execução: não executada nesta chamada (usar `-- --suites`).');
     }
