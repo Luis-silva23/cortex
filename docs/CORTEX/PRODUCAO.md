@@ -401,6 +401,22 @@ Nunca envie senhas ou tokens no chat: coloque-os direto no `.env` do servidor ou
 | Backup externo e restauração em outro host | **preparado, depende de bucket e credenciais; não provado** |
 | Produção | **não pronta** (HTTPS, backup externo restaurado, alertas reais e homologação no servidor pendentes) |
 
+### 19.7 Admin Web na Cloudflare Workers: avaliado em 2026-10-22 — NÃO viável sem migração relevante
+
+O Workers Builds falhou com "application detection logic has been run in the root of a workspace" porque o repositório é um monorepo (`workspaces: apps/*, packages/*`) sem nenhum `wrangler.jsonc` e a raiz foi usada como diretório. Apontar o diretório para `apps/admin-web` não resolve: não há o que publicar nesse caminho hoje.
+
+| Caminho | Resultado verificado |
+| --- | --- |
+| **OpenNext para Cloudflare** (`@opennextjs/cloudflare` 1.20.13, o adaptador oficial para Next no Workers) | **Incompatível**: exige `next >=15.5.28 <16` ou `>=16.4.1`; o Admin Web está em `next@14.2.35` com React 18. Exige migrar Next 14 → 15.5.28+ e React 18 → 19 (App Router), com regressão das 54 páginas. |
+| **Exportação estática** (`output: 'export'`) + Workers Static Assets | **Falha no build** (testado): `Page "/dashboard/agreements/employees/[id]/statement" is missing "generateStaticParams()"`. Há 15 pastas de rota dinâmica `[id]`/`[slug]`; além disso os cabeçalhos de segurança e a CSP de `next.config.js` deixam de valer e teriam de ir para um arquivo `_headers`. |
+| `@cloudflare/next-on-pages` (Pages, edge) | Descartado: caminho em descontinuação, exige `runtime = 'edge'` em todas as rotas. |
+
+**O que o Admin Web é hoje:** 54 páginas, todas componentes de cliente (única exceção: o `layout.tsx` do painel), **sem** route handlers, middleware, Server Actions nem APIs de Node; as únicas variáveis são `NEXT_PUBLIC_*`, fixadas no build. Isso torna a migração tecnicamente viável, mas ela é um projeto (não uma configuração).
+
+**Recomendação (mais segura): não publicar o Admin Web na Cloudflare Workers agora.** Manter o caminho já validado (contêiner `admin-web` do `docker-compose.yml`, construído e executado no CI) no servidor Oracle, com a Cloudflare apenas como DNS/proxy/HTTPS na frente (§19.4, `docker-compose.cloudflare.yml`). Além disso, o painel sozinho não funciona: ele precisa da API (`NEXT_PUBLIC_API_URL`, HTTPS) e do banco, que só existem no servidor. Para parar os builds com falha, desconecte o repositório do Workers Builds no painel da Cloudflare (ação sua) ou deixe-o sem build automático.
+
+**Se a opção Workers for desejada depois** (projeto próprio, após a API estar publicada): (1) migrar Next para 15.5.28+ e React 19 e rodar a suíte de navegador (`apps/e2e`), o que também fecha o último crítico do `npm audit` (`next`); (2) adicionar `@opennextjs/cloudflare` e `wrangler` ao `apps/admin-web` com um `wrangler.jsonc` e `open-next.config.ts` (nome do Worker, `compatibility_flags: ["nodejs_compat"]`, `assets`); (3) no painel: **Root directory** `apps/admin-web`, **Build command** `npx opennextjs-cloudflare build`, **Deploy command** `npx opennextjs-cloudflare deploy`, variável de build `NEXT_PUBLIC_API_URL=https://api.<dominio>` (não é segredo; é fixada no build) e Node ≥ 22; (4) liberar a origem do Worker em `WEB_URL` da API (CORS) e conferir a CSP (`connect-src` com a API). Estes valores de (3) são o plano esperado pela documentação do adaptador e **não foram executados**.
+
 ## 20. Checklist executável de homologação (Oracle + Cloudflare) e verificações da rodada de 2026-10-20
 
 Nada abaixo foi executado em servidor: **não há** Docker, Linux/WSL, conta Oracle, domínio nem Cloudflare neste computador. Os arquivos e comandos existem e foram validados só estaticamente (sintaxe YAML dos 5 compose, `bash -n` dos 11 scripts, workflow de CI). Ordem (cada passo só começa quando o anterior passou):
