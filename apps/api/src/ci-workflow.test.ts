@@ -38,8 +38,8 @@ describe('workflow de CI × repositório', () => {
     }
   });
 
-  it('o docker-compose.yml exige .env no serviço api e o job de infra o cria a partir do .env.example antes de validar o compose', () => {
-    expect(compose).toMatch(/env_file:\s*\n\s*- \.env\b/);
+  it('o job de infra cria o .env a partir do .env.example (fluxo documentado, lido pelo compose para interpolar) antes de validar o compose', () => {
+    expect(compose).toContain('${DB_APP_PASSWORD');
     const block = jobBlock('infra-static');
     const copy = block.indexOf('cp .env.example .env');
     const firstConfig = block.indexOf('docker compose -f');

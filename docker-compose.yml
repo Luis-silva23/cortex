@@ -106,8 +106,9 @@ services:
     restart: unless-stopped
     # O desligamento ordenado da API tem prazo total de 25 s (config/shutdown.ts): dê um pouco mais antes do SIGKILL.
     stop_grace_period: 30s
-    env_file:
-      - .env
+    # SEM `env_file: .env`: ele entregava à API TODAS as senhas do .env (superusuário do Postgres, dono das tabelas — que pode desligar a RLS — e a credencial de
+    # backup com BYPASSRLS), anulando a separação de papéis e a decisão 152 (reprovado por validar-homologacao.sh). A API recebe só as variáveis da aplicação
+    # listadas abaixo (sem valor = repassa o do .env/ambiente; se não existir, fica ausente). Variável nova da API: acrescente-a aqui (o teste compose-api-env.test.ts avisa).
     environment:
       # Dentro da rede do compose os serviços se enxergam pelo NOME do serviço, não "localhost" — sobrescreve o que vier de .env.
       # Papel de EXECUÇÃO (só DML, sem posse, sem BYPASSRLS): é isso que faz a RLS valer. NUNCA o POSTGRES_USER (superusuário) nem o dono.
@@ -134,6 +135,108 @@ services:
       # um host, sem TLS), por isso a exigência vem DESLIGADA aqui e a API avisa no log. Para homologar com HTTPS de verdade use
       # docker-compose.staging.yml (proxy com certificado à frente da API, ENFORCE_HTTPS ligado e porta 3001 fechada).
       ENFORCE_HTTPS: "${ENFORCE_HTTPS:-false}"
+      # ---- variáveis da aplicação repassadas do .env (nenhuma é credencial de infraestrutura) ----
+      ALERT_DEVICE_HEARTBEAT_STALE_HOURS:
+      ALERT_EMAIL_DEDUPE_MINUTES:
+      ALERT_EMAIL_FROM:
+      ALERT_EMAIL_MAX_PER_DAY:
+      ALERT_EMAIL_MAX_PER_HOUR:
+      ALERT_EMAIL_MAX_PER_MONTH:
+      ALERT_EMAIL_MIN_SEVERITY:
+      ALERT_EMAIL_TO:
+      ALERT_ERROR_RATE_THRESHOLD:
+      ALERT_P95_THRESHOLD_MS:
+      ALERT_QUEUE_BACKLOG_THRESHOLD:
+      ALLOW_SUPER_ADMIN_BOOTSTRAP:
+      API_HOST:
+      API_ORIGIN:
+      ARGON2_MEMORY_KIB:
+      ARGON2_PARALLELISM:
+      ARGON2_TIME_COST:
+      AUDIT_LOG_RETENTION_DAYS:
+      AUTH_DB_TIMEOUT_MS:
+      AUTH_REDIS_TIMEOUT_MS:
+      AWS_ACCESS_KEY_ID:
+      AWS_REGION:
+      AWS_SECRET_ACCESS_KEY:
+      BACKUP_MAX_AGE_HOURS:
+      BALCAO_URL:
+      BCRYPT_ROUNDS:
+      BOOTSTRAP_SA_EMAIL:
+      BOOTSTRAP_SA_NAME:
+      BOOTSTRAP_SA_PASSWORD:
+      BULLMQ_PREFIX:
+      CHANNEL_SANDBOX_PROVIDER:
+      COMMERCE_AUTH_FAILURES_PER_MIN:
+      COMMERCE_RATE_LIMIT_PER_MIN:
+      DATADOG_API_KEY:
+      DATA_ENCRYPTION_KEY:
+      DEFAULT_TRIAL_DAYS:
+      DEVICE_ENROLL_PER_HOUR:
+      DEVICE_LEGACY_CUTOFF:
+      DEVICE_STATUS_FAILURES_PER_MIN:
+      EMAIL_FROM:
+      EMAIL_FROM_NAME:
+      EMAIL_SERVICE:
+      ENABLE_AUDIT_LOG:
+      ENABLE_EMAIL_NOTIFICATIONS:
+      ENABLE_PRINTER:
+      ENABLE_SCHEDULER:
+      FISCAL_STORAGE_PATH:
+      INCIDENT_RETENTION_DAYS:
+      JWT_EXPIRES_IN:
+      JWT_REFRESH_EXPIRES_IN:
+      JWT_REFRESH_SECRET:
+      JWT_SECRET:
+      LOCKOUT_TIME_MINUTES:
+      LOG_FILE_PATH:
+      LOG_LEVEL:
+      LOG_MAX_FILES:
+      MAX_LOGIN_ATTEMPTS:
+      MERCADOPAGO_ACCESS_TOKEN:
+      MONITORING_ALERT_RETENTION_DAYS:
+      MONITORING_DELIVERY_RETENTION_DAYS:
+      MONITORING_SAMPLES_MAX_PER_DAY:
+      MONITORING_SAMPLE_MINUTES:
+      MONITORING_SAMPLE_RETENTION_DAYS:
+      PAGSEGURO_TOKEN:
+      PASSWORD_HASH_ALGORITHM:
+      PASSWORD_LEGACY_BCRYPT:
+      PRINTER_NAME:
+      PRINTER_TYPE:
+      PRIVACY_FISCAL_RETENTION_YEARS:
+      RATE_LIMIT_MAX_REQUESTS:
+      RATE_LIMIT_WINDOW_MS:
+      REDIS_DB:
+      REQUEST_LOG_RETENTION_DAYS:
+      REQUIRE_MFA_COMPANY_ADMIN:
+      REQUIRE_MFA_PRIVILEGED:
+      RESEND_API_KEY:
+      RESEND_DOMAIN_VERIFIED:
+      RESEND_TRANSACTIONAL:
+      S3_ACCESS_KEY_ID:
+      S3_BUCKET:
+      S3_REGION:
+      S3_SECRET_ACCESS_KEY:
+      SENDGRID_API_KEY:
+      SENTRY_DEDUPE_MINUTES:
+      SENTRY_DSN:
+      SENTRY_ENVIRONMENT:
+      SENTRY_MAX_EVENTS_PER_DAY:
+      SENTRY_MAX_EVENTS_PER_HOUR:
+      SENTRY_RELEASE:
+      SENTRY_SAMPLE_RATE:
+      SMTP_HOST:
+      SMTP_PASS:
+      SMTP_PORT:
+      SMTP_USER:
+      STORAGE_PATH:
+      STORAGE_TYPE:
+      STRIPE_SECRET_KEY:
+      SUPER_ADMIN_URL:
+      SYSTEM_LOG_RETENTION_DAYS:
+      TELEMETRY_RETENTION_DAYS:
+      WEB_URL:
     ports:
       - "3001:3001"
     volumes:

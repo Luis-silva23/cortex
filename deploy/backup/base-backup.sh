@@ -6,6 +6,9 @@
 # caminho. O diretório gerado é o que o `pitr-restore.sh` copia. Cifre/envie para fora do servidor com o mesmo gancho do backup lógico (BACKUP_OFFSITE_CMD).
 set -eu
 umask 077
+# No contêiner do compose o superusuário é o POSTGRES_USER (não existe a role "postgres"): sem isto o pg_basebackup conecta como o usuário do SO e falha com
+# `role "postgres" does not exist` (visto no 1º teste real da pilha).
+export PGUSER="${PGUSER:-${POSTGRES_USER:-postgres}}"
 dest_root="${1:?uso: base-backup.sh <pasta-de-destino>}"
 stamp=$(date -u +%Y%m%dT%H%M%SZ)
 dir="$dest_root/base-$stamp"

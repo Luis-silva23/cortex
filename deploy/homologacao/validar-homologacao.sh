@@ -50,8 +50,9 @@ exit_of() { docker inspect -f '{{.State.ExitCode}}' "$1" 2>/dev/null; }
 [ "$(exit_of ln-system-db-grants)" = 0 ] && pass "db-grants terminou com sucesso (inclui a provisão do segredo de contexto)" || fail "db-grants não terminou com sucesso"
 
 # SQL no contêiner do banco: `sa` = superusuário de emergência (só leitura aqui); `as_app` = o papel REAL da API, por TCP e com senha
-sa() { dc exec -T postgres sh -c 'psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "$1" | tr -d ' \r'; }
-as_app() { dc exec -T postgres sh -c 'PGPASSWORD="$DB_APP_PASSWORD" psql -X -At -h localhost -U "$DB_APP_USER" -d "$POSTGRES_DB" -c "$1"' sh "$1" | tr -d '\r'; }
+# O código de saída do psql NÃO pode se perder no pipe (antes o `| tr` o escondia e todo `must_fail` reprovava mesmo com o banco NEGANDO: "permission denied" no log).
+sa() { _o=$(dc exec -T postgres sh -c 'psql -X -At -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "$1"' sh "$1") || return 1; printf '%s\n' "$_o" | tr -d ' \r'; }
+as_app() { _o=$(dc exec -T postgres sh -c 'PGPASSWORD="$DB_APP_PASSWORD" psql -X -At -h localhost -U "$DB_APP_USER" -d "$POSTGRES_DB" -c "$1"' sh "$1") || return 1; printf '%s\n' "$_o" | tr -d '\r'; }
 
 # 3. papéis: a API não é superusuário, não é dona e não tem BYPASSRLS; o backup tem BYPASSRLS mas só leitura
 say "-- papéis do banco"
