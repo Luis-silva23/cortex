@@ -5,10 +5,11 @@ import { advancedRateLimiter } from '../../../src/middlewares/advancedRateLimit'
  * (Redis do desenvolvimento). Juntas gastam exatamente o orçamento: dependendo da ordem em que o jest as roda, a
  * seguinte recebe 429 com a senha certa. Cada suíte começa de um balde limpo; o limitador em si não é alterado.
  *
- * Endurecido em 2026-10-22 (falha intermitente de `login-failed-audit` sob carga): antes, se o Redis do limitador
- * ainda não estivesse pronto em 5 s, o reset caía SÓ na memória de reserva (insuranceLimiter), deixava as falhas
- * das suítes anteriores no Redis e a suíte seguinte recebia 429 sem nenhuma mensagem sobre o motivo. Agora espera até
- * 30 s, confere que o balde voltou ao orçamento cheio e, se não der, FALHA dizendo qual balde está sujo.
+ * Endurecimento DEFENSIVO (2026-10-22), não correção de uma causa provada: antes, se o Redis do limitador não estivesse pronto em 5 s,
+ * o reset cairia SÓ na memória de reserva (insuranceLimiter) e deixaria as falhas das suítes anteriores no Redis, sem mensagem. Agora
+ * espera até 30 s, confere que o balde voltou ao orçamento cheio e, se não der, FALHA dizendo qual balde está sujo. Medição (rodada R1,
+ * CPU saturada, 65 resets): o Redis ficou pronto em no máximo 0,94 s e todos os resets limparam o balde, então esse cenário **não foi
+ * observado**; já os baldes chegam à suíte seguinte com falhas acumuladas (19 de 65), o que mostra por que o reset é necessário.
  */
 const IPS = ['::ffff:127.0.0.1', '::1', '127.0.0.1'];
 const TYPES = ['auth', 'mfa'] as const;

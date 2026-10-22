@@ -36,8 +36,11 @@ describe('Falha de login é auditada sem gravar a senha (integração real)', ()
     const res = await request(app).post('/api/auth/login').send({ email, password: WRONG });
     expect(res.status).toBe(401);
 
+    // A auditoria é gravada de forma ASSÍNCRONA (fila). Medição com a CPU saturada (40 logins falhos, 2026-10-22): mediana 0,8 s, p90 1,1 s,
+    // máximo 2,5 s, 1 de 40 acima de 2 s — a antiga janela de 2 s era curta demais. Espera até 15 s (para assim que a linha aparece): é uma
+    // MITIGAÇÃO por tempo, não uma sincronização com o evento; o produto continua gravando de forma assíncrona.
     let rows: any[] = [];
-    for (let i = 0; i < 20 && rows.length === 0; i++) {
+    for (let i = 0; i < 150 && rows.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 100));
       rows = await failures();
     }
