@@ -4,6 +4,16 @@ Rodada a rodada, do mais recente para o mais antigo. Cada correção de defeito 
 Até 2026-09-25 o detalhe (achado, prova, incidente) está no
 [registro de auditoria](historico/registro-de-auditoria-2026-09-14-a-25.md).
 
+## Relé de notificações em Google Apps Script — código pronto, NADA publicado (2026-10-23)
+
+Detalhe em [APPS_SCRIPT_NOTIFICACOES](APPS_SCRIPT_NOTIFICACOES.md) e [integrations/google-apps-script/README](../../integrations/google-apps-script/README.md).
+
+| O quê |
+|---|
+| **Relé** (`integrations/google-apps-script/`): e-mail (Gmail/MailApp, lista permitida de destinatários, cota do Gmail), SMS (adaptador Twilio substituível) e WhatsApp (API oficial da Meta, modelo aprovado); HMAC-SHA256 no corpo assinado (o `doPost` não lê cabeçalhos), janela de tempo, `id` anti-repetição, limites por canal, `dry_run`, logs sem dados sensíveis. SMS/WhatsApp **não simulam sucesso** (`not_configured`). |
+| **CÓRTEX:** o relé é um provedor a mais na lista de tentativas existente (`ALERT_EMAIL_PROVIDERS`; Resend como alternativa), com o failover, limites, deduplicação, disjuntor e registro **inalterados**; desligado por padrão (`APPS_SCRIPT_CHANNELS` vazio). Cartão em Serviços externos (só estado). |
+| **Testes:** relé 29/29 (`.gs` reais em contexto simulado), CÓRTEX 42/42 (inclui compatibilidade de assinatura TypeScript ↔ script), integração 115/115, monitor 42/42, consistência compose/CI/docs. **Não feitos:** qualquer coisa que exija o Google (publicação, escopos, cota real, envio real). |
+
 ## Serviços externos: administração dos canais SMS e WhatsApp (2026-10-22)
 
 A tela Observabilidade › Serviços externos passou a mostrar e administrar e-mail, **SMS e WhatsApp** com o mesmo padrão: situação real (pendente = "NÃO está funcionando"), dependências externas (contratação, aprovação, configuração no servidor), o que falta, consumo, disjuntor, liga/desliga e limites dentro do **teto do servidor** (a tela barra e o servidor decide). Sem campo de credencial. Testes de integração: 114/114 em `monitoring-central` (4 novos: pendente, ativo/desligado sem vazar segredo, limites e teto, permissões). Sem mudança de API. Detalhe em [ALERTAS_CANAIS §2.1](ALERTAS_CANAIS.md).

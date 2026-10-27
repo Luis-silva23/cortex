@@ -707,6 +707,31 @@ describe('Central de Monitoramento', () => {
       expect((await put({ toggles: { smsInventado: false } })).status).toBe(400);
     });
 
+    it('relé Google Apps Script: desligado por padrão; configurado aparece só como ESTADO (sem URL de implantação nem segredo) e é restrito ao Super Admin', async () => {
+      const RELAY_SECRET_VALUE = `relay-${stamp}-`.padEnd(40, 'r');
+      const RELAY_URL = 'https://script.google.com/macros/s/AKfycbxINTEGRACAO0123456789abcdef/exec';
+      try {
+        for (const k of ['APPS_SCRIPT_CHANNELS', 'APPS_SCRIPT_URL', 'APPS_SCRIPT_SECRET', 'ALERT_EMAIL_PROVIDERS']) delete process.env[k];
+        __resetSettingsCache();
+        const off = await get('/external');
+        expect(off.body.appsScript).toMatchObject({ state: 'OFF', enabledChannels: [], missing: [] });
+        process.env.APPS_SCRIPT_CHANNELS = 'email';
+        process.env.APPS_SCRIPT_URL = RELAY_URL;
+        process.env.APPS_SCRIPT_SECRET = RELAY_SECRET_VALUE;
+        __resetSettingsCache();
+        const on = await get('/external');
+        expect(on.body.appsScript).toMatchObject({ state: 'READY_UNTESTED', enabledChannels: ['email'], host: 'script.google.com', ready: { email: true, sms: false, whatsapp: false } });
+        expect(on.body.resend).toMatchObject({ configured: true, providers: ['apps-script'], state: 'ACTIVE' });
+        const text = JSON.stringify(on.body);
+        expect(text).not.toContain(RELAY_SECRET_VALUE);
+        expect(text).not.toContain('AKfycbx');
+        for (const t of [adminA, managerA, operatorA]) expect((await request(app).get(`${CENTRAL}/external`).set(bearer(t))).status).toBe(403);
+      } finally {
+        for (const k of ['APPS_SCRIPT_CHANNELS', 'APPS_SCRIPT_URL', 'APPS_SCRIPT_SECRET']) delete process.env[k];
+        __resetSettingsCache();
+      }
+    });
+
     it('permissão: só o Super Admin altera; administrador, gerente e operador recebem 403 e nada muda', async () => {
       for (const t of [adminA, managerA, operatorA]) {
         expect((await put({ toggles: { smsNotifications: false } }, t)).status).toBe(403);

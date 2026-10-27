@@ -4,7 +4,7 @@
  * (padrão `meta,twilio`): se o primeiro falhar, o segundo é tentado (provedor alternativo). Faltou configuração: NÃO envia nada e a central de alertas interna segue normal.
  * "Enviado" aqui significa ACEITO pelo provedor; a confirmação de entrega/leitura (webhook) não está implementada.
  */
-import { whatsappConfig, sendWhatsappMeta, sendWhatsappTwilio, type TransportDeps, type WhatsappConfig } from '@ln-system/shared/utils/alert-channels';
+import { whatsappAttempts, whatsappConfig, type TransportDeps, type WhatsappConfig } from '@ln-system/shared/utils/alert-channels';
 import { createBreaker, runChannel, type RunChannelResult } from './channel-core';
 
 export const whatsappBreaker = createBreaker();
@@ -38,10 +38,7 @@ export function sendWhatsapp(input: SendWhatsappInput, deps: SendDeps = {}): Pro
     breaker: whatsappBreaker,
     now: deps.now,
     sleep: deps.sleep,
-    attemptsFor: (to) =>
-      cfg.providers.map((p) => ({
-        provider: p === 'meta' ? 'meta-whatsapp' : 'twilio-whatsapp',
-        run: () => (p === 'meta' ? sendWhatsappMeta(env, to, input.text, t) : sendWhatsappTwilio(env, to, input.text, t)),
-      })),
+    // provedores prontos, na ordem configurada (Meta, Twilio e/ou relé do Apps Script)
+    attemptsFor: (to) => whatsappAttempts(env, to, input.text, `${input.dedupeKey}:${Math.floor((deps.now ?? new Date()).getTime() / 3_600_000)}`, t),
   });
 }

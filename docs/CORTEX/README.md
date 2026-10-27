@@ -22,6 +22,7 @@ Toda a documentação do produto fica aqui. Comece por [CORTEX_BRAIN](CORTEX_BRA
 | [commerce-api.openapi.yaml](commerce-api.openapi.yaml) | Contrato OpenAPI da Commerce API (`/commerce/v1`): autenticação por assinatura, recursos, erros. |
 | [GOOGLE_CLOUD](GOOGLE_CLOUD.md) | **Destino de implantação atual (2026-10-22):** requisitos reais por componente, VM + compose (comprovado) × serviços gerenciados (a adaptar), rede/HTTPS/CORS, segredos, backups, custos de referência. Nada foi criado no Google Cloud. |
 | [MONITORAMENTO_EXTERNO](MONITORAMENTO_EXTERNO.md) | Monitor independente (`apps/monitor`), entrada assinada na API e tela Super Admin › Infraestrutura; o que foi provado e o que não (nada implantado). |
+| [APPS_SCRIPT_NOTIFICACOES](APPS_SCRIPT_NOTIFICACOES.md) | Relé de notificações em Google Apps Script (e-mail pronto para publicar; SMS/WhatsApp desligados): arquitetura, segurança, cotas, variáveis, testes, reversão e o que falta antes de ativar. |
 | [ALERTAS_CANAIS](ALERTAS_CANAIS.md) | Alertas por e-mail, SMS e WhatsApp: implementado × configurado × enviado × confirmado, política, o que falta configurar. |
 | [ORGANIZACAO_GIT_E_BACKUP](ORGANIZACAO_GIT_E_BACKUP.md) | As duas pastas, qual usar no GitHub Desktop sem conflito, backup datado e restauração. |
 | [HOMOLOGACAO_POS_NEXT15](HOMOLOGACAO_POS_NEXT15.md) | Rodada de homologação depois do Next 15.5.28 (2026-10-22): falha isolada de integração, E2E, regressão funcional/visual, contagem de tabelas e vulnerabilidades restantes, com o que foi comprovado, o que falhou e o que segue pendente. |

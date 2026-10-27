@@ -40,6 +40,10 @@ Os três canais ficam na mesma tela, com o mesmo padrão: **situação real** (p
 - **Ligar/desligar** cada canal e **reduzir limites** (por hora/dia/mês e janela anti-repetição) em "Controle de custos e volume". O valor nunca passa do **teto do servidor**: a tela barra o que passa do teto (e mostra o motivo), e o servidor continua sendo a autoridade — ignora o que passa do teto e recusa valor inválido ou chave desconhecida. Cada mudança é auditada. Só SUPER_ADMIN (os demais papéis recebem 403).
 - **Não há campo para chave, token, senha, remetente ou número**: credenciais ficam só nas variáveis de ambiente do servidor, fora do banco e da tela. Ligar um canal pendente **não** o faz funcionar (a tela avisa).
 
+## 2.2 Relé gratuito em Google Apps Script (código pronto, NÃO publicado)
+
+Para começar sem custo, o e-mail pode sair pelo Gmail via um relé em Google Apps Script, como **provedor adicional** na mesma lista (o Resend continua como alternativa). SMS e WhatsApp têm adaptador no relé, mas **continuam pendentes** de provedor externo pago/aprovado. Desligado por padrão. Detalhes, cotas, segurança e passos: [APPS_SCRIPT_NOTIFICACOES](APPS_SCRIPT_NOTIFICACOES.md).
+
 ## 3. O que falta para ligar cada canal (e é com você)
 
 ### E-mail — Resend

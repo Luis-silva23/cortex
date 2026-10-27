@@ -3,6 +3,8 @@
  * só "configurado ou não", o host/domínio (que não é segredo) e contagens. "Configurado" quer dizer que as variáveis existem, não que a conexão foi testada: o que não foi testado
  * é dito como tal. Nada aqui contrata, liga ou altera serviço.
  */
+import { emailConfig } from '@ln-system/shared/utils/alert-channels';
+import { relayConfig } from '@ln-system/shared/utils/apps-script-relay';
 import { sentryConfigStatus, sentryRuntime } from './sentry.service';
 import { breakerState, resendConfig } from './resend.service';
 import { smsBreaker, smsConfig } from './sms.service';
@@ -51,6 +53,9 @@ export async function externalStatus(env: NodeJS.ProcessEnv = process.env, now =
     deliverySummary('WHATSAPP', now),
   ]);
   const resend = resendConfig(env);
+  // e-mail "pronto" = qualquer provedor (Resend e/ou relé do Apps Script); o bloco `resend` descreve o CANAL de e-mail
+  const email = emailConfig(env);
+  const relay = relayConfig(env);
   const sms = smsConfig(env);
   const whatsapp = whatsappConfig(env);
   const sentry = sentryConfigStatus(env);
@@ -67,12 +72,22 @@ export async function externalStatus(env: NodeJS.ProcessEnv = process.env, now =
       runtime: sentryRuntime(),
       note: 'Sem SENTRY_DSN nada é enviado. O plano gratuito do provedor tem limite mensal próprio (na última consulta: 5 mil erros/mês, 1 usuário — confira a página de preços antes de ligar); a Central limita por hora/dia e amostra os erros.',
     },
+    // Relé de notificações em Google Apps Script: só mostra o ESTADO (nunca a URL de implantação, que carrega o identificador, nem o segredo). Desligado por padrão.
+    appsScript: {
+      enabledChannels: relay.channels,
+      ready: relay.readyFor,
+      state: relay.channels.length === 0 ? 'OFF' : relay.urlOk && relay.secretOk ? 'READY_UNTESTED' : 'PENDING_CONFIGURATION',
+      missing: relay.missing,
+      host: relay.host,
+      note: 'Estado de configuração apenas: o relé NÃO foi publicado nem testado no Google por este sistema. Antes de confiar nele, faça o autoteste em modo simulado e um envio real controlado.',
+    },
     resend: {
-      configured: resend.configured,
-      state: !resend.configured ? 'PENDING_CONFIGURATION' : effective.toggles.emailNotifications ? 'ACTIVE' : 'DISABLED',
-      missing: resend.missing,
+      configured: email.configured,
+      providers: email.providers,
+      state: !email.configured ? 'PENDING_CONFIGURATION' : effective.toggles.emailNotifications ? 'ACTIVE' : 'DISABLED',
+      missing: email.missing,
       senderDomain: resend.domain,
-      recipients: resend.to.length,
+      recipients: email.to.length,
       enabled: effective.toggles.emailNotifications,
       limits: { perHour: effective.limits.emailMaxPerHour, perDay: effective.limits.emailMaxPerDay, perMonth: effective.limits.emailMaxPerMonth, dedupeMinutes: effective.limits.emailDedupeMinutes },
       consumption: emailD,

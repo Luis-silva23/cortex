@@ -9,6 +9,6 @@
     "declarationMap": false,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "../../packages/shared/utils/alert-channels.ts", "../../packages/shared/utils/request-signature.ts"],
+  "include": ["src/**/*.ts", "../../packages/shared/utils/alert-channels.ts", "../../packages/shared/utils/apps-script-relay.ts", "../../packages/shared/utils/request-signature.ts"],
   "exclude": ["node_modules", "dist"]
 }

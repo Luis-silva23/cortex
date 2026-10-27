@@ -193,7 +193,7 @@ export default function ExternalServicesPage() {
   if (loading && !data) return <LoadingState label="Carregando serviços externos..." />;
   if (!data) return <InlineError message={error ?? 'Sem dados.'} onRetry={load} />;
 
-  const { sentry, resend, sms, whatsapp, database, domain, figma, costControls } = data;
+  const { sentry, resend, sms, whatsapp, appsScript, database, domain, figma, costControls } = data;
   const ceilings = costControls.envCeilings as Record<string, number>;
   const limitProblems = Object.fromEntries(LIMITS.map((l) => [l.key, limitProblem(l.key, limits[l.key], ceilings[l.key])]));
   const hasProblems = Object.values(limitProblems).some(Boolean);
@@ -283,6 +283,41 @@ export default function ExternalServicesPage() {
             <p className="text-xs text-muted-foreground">{resend.note}</p>
           </CardContent>
         </Card>
+
+        {appsScript && (
+          <Card data-testid="card-appsscript">
+            <CardHeader className="pb-2">
+              <div className="flex items-center justify-between gap-2">
+                <CardTitle className="text-base">Relé Google Apps Script (gratuito)</CardTitle>
+                <StatusPill
+                  testId="appsscript-state"
+                  status={appsScript.state === 'READY_UNTESTED' ? 'ATTENTION' : appsScript.state === 'OFF' ? 'NO_DATA' : 'ATTENTION'}
+                  label={appsScript.state === 'OFF' ? 'Desligado' : appsScript.state === 'READY_UNTESTED' ? 'Configurado — não testado' : 'Pendente de configuração'}
+                />
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p role="note" className="rounded-md border border-border bg-muted px-3 py-2 text-sm" data-testid="appsscript-note">
+                {appsScript.state === 'OFF'
+                  ? 'Desligado: nenhum canal usa o relé. Nada muda no envio atual (e-mail pelo Resend).'
+                  : appsScript.state === 'READY_UNTESTED'
+                    ? 'Configurado no servidor, mas o script ainda não foi publicado/testado por este sistema: faça o autoteste em modo simulado e um envio real controlado antes de confiar.'
+                    : 'NÃO está funcionando: faltam itens na configuração do servidor.'}
+              </p>
+              <div>
+                <Row label="Canais pedidos">{appsScript.enabledChannels.length ? appsScript.enabledChannels.join(', ') : 'nenhum'}</Row>
+                <Row label="Pronto por canal">{(['email', 'sms', 'whatsapp'] as const).map((c) => `${c}: ${appsScript.ready[c] ? 'sim' : 'não'}`).join(' · ')}</Row>
+                <Row label="Servidor do Google">{appsScript.host ?? '—'}</Row>
+              </div>
+              {appsScript.missing.length > 0 && (
+                <p className="break-words text-xs text-muted-foreground" data-testid="appsscript-missing">
+                  <span className="font-medium text-foreground">Falta no servidor:</span> {appsScript.missing.join(' · ')}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">{appsScript.note} A URL de implantação e o segredo ficam só nas variáveis de ambiente: não aparecem aqui. SMS e WhatsApp por este relé continuam dependendo de provedor externo (conta, remetente, modelo aprovado).</p>
+            </CardContent>
+          </Card>
+        )}
 
         <ChannelCard testId="card-sms" title="SMS (alertas)" channel="sms" ch={sms} usageLabel="SMS" providerLabel="Provedor" />
         <ChannelCard testId="card-whatsapp" title="WhatsApp (alertas)" channel="whatsapp" ch={whatsapp} usageLabel="WhatsApp" providerLabel="Provedores (ordem de tentativa)" />

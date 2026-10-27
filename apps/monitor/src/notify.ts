@@ -9,15 +9,14 @@
  */
 import {
   composeIncidentMessage,
+  emailAttempts,
   emailConfig,
   redact,
-  sendEmailResend,
-  sendSmsTwilio,
-  sendWhatsappMeta,
-  sendWhatsappTwilio,
   sendWithFailover,
+  smsAttempts,
   smsConfig,
   toSmsText,
+  whatsappAttempts,
   whatsappConfig,
   type AlertChannel,
   type TransportDeps,
@@ -96,7 +95,8 @@ export async function deliver(job: NotificationJob, env: NodeJS.ProcessEnv, deps
   if (job.channel === 'EMAIL') {
     const cfg = emailConfig(env);
     if (!cfg.configured) return { ok: false, skipped: `e-mail não configurado (faltam: ${cfg.missing.join(', ')})`, retryable: false };
-    const r = await sendEmailResend(env, { subject: job.subject, text: job.text, idempotencyKey: job.id }, deps);
+    // provedores prontos na ordem configurada (Resend e/ou relé do Apps Script)
+    const r = (await sendWithFailover(emailAttempts(env, { subject: job.subject, text: job.text, idempotencyKey: job.id }, deps), one)).result;
     return { ok: r.ok, error: r.error, retryable: r.retryable };
   }
   if (job.channel === 'SMS') {
@@ -104,7 +104,7 @@ export async function deliver(job: NotificationJob, env: NodeJS.ProcessEnv, deps
     if (!cfg.configured) return { ok: false, skipped: `SMS não configurado (faltam: ${cfg.missing.join(', ')})`, retryable: false };
     const text = toSmsText(`${job.subject}\n${job.text}`);
     const rs: TransportResult[] = [];
-    for (const to of cfg.to) rs.push((await sendWithFailover([{ provider: 'twilio', run: () => sendSmsTwilio(env, to, text, deps) }], one)).result);
+    for (const to of cfg.to) rs.push((await sendWithFailover(smsAttempts(env, to, text, job.id, deps), one)).result);
     const ok = rs.some((r) => r.ok);
     return { ok, error: ok ? undefined : rs[0]?.error, retryable: rs.some((r) => r.retryable) };
   }
@@ -112,8 +112,7 @@ export async function deliver(job: NotificationJob, env: NodeJS.ProcessEnv, deps
   if (!cfg.configured) return { ok: false, skipped: `WhatsApp não configurado (faltam: ${cfg.missing.join(', ')})`, retryable: false };
   const rs: TransportResult[] = [];
   for (const to of cfg.to) {
-    const attempts = cfg.providers.map((p) => ({ provider: p, run: () => (p === 'meta' ? sendWhatsappMeta(env, to, job.text, deps) : sendWhatsappTwilio(env, to, job.text, deps)) }));
-    rs.push((await sendWithFailover(attempts, one)).result);
+    rs.push((await sendWithFailover(whatsappAttempts(env, to, job.text, job.id, deps), one)).result);
   }
   const ok = rs.some((r) => r.ok);
   return { ok, error: ok ? undefined : rs[0]?.error, retryable: rs.some((r) => r.retryable) };

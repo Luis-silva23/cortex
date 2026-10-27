@@ -7,7 +7,7 @@
  * Nada aqui é chamado no caminho de uma requisição de usuário: só jobs e ações explícitas do Super Admin.
  */
 import { createHash } from 'crypto';
-import { sendEmailResend, sendWithFailover } from '@ln-system/shared/utils/alert-channels';
+import { emailAttempts, emailConfig, sendWithFailover } from '@ln-system/shared/utils/alert-channels';
 import { logger } from '../../utils/logger';
 import { getEffective, type MonitoringLimits } from './settings.service';
 import { lastDeliveryAt, recordDelivery, safeError, sentCounts, type SentCounts } from './deliveries';
@@ -99,7 +99,8 @@ export interface SendDeps {
 export async function sendEmail(input: SendEmailInput, deps: SendDeps = {}): Promise<SendEmailResult> {
   const env = deps.env ?? process.env;
   const now = deps.now ?? new Date();
-  const cfg = resendConfig(env);
+  // "pronto" = QUALQUER provedor de e-mail pronto (Resend e/ou relé do Apps Script); com o relé desligado (padrão) isto é exatamente a configuração do Resend de sempre
+  const cfg = { configured: emailConfig(env).configured };
   const effective = await getEffective(env);
   let counts: SentCounts = { hour: 0, day: 0, month: 0 };
   let lastSameKeyAt: Date | null = null;
@@ -135,8 +136,9 @@ export async function sendEmail(input: SendEmailInput, deps: SendDeps = {}): Pro
 
   const idempotency = createHash('sha256').update(`${input.dedupeKey}:${Math.floor(now.getTime() / 3_600_000)}`).digest('hex').slice(0, 48);
   // transporte ÚNICO (shared) com retentativa controlada: 2 tentativas só para falha repetível (rede, 429, 5xx); erro de credencial/destinatário não se repete
+  // provedores na ordem de ALERT_EMAIL_PROVIDERS (padrão `apps-script,resend`, mas o relé só entra se estiver pronto): se o primeiro falhar, o próximo é tentado — o Resend segue como alternativa
   const { result } = await sendWithFailover(
-    [{ provider: 'resend', run: () => sendEmailResend(env, { subject: input.subject, text: input.text, to: input.to, idempotencyKey: idempotency }, { fetchImpl: deps.fetchImpl, timeoutMs: TIMEOUT_MS }) }],
+    emailAttempts(env, { subject: input.subject, text: input.text, to: input.to, idempotencyKey: idempotency }, { fetchImpl: deps.fetchImpl, timeoutMs: TIMEOUT_MS }),
     { attemptsPerProvider: 2, backoffMs: [1000], sleep: deps.sleep }
   );
   if (result.ok) {

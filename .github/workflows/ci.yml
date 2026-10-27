@@ -86,6 +86,8 @@ jobs:
         run: npm run test:logic --workspace=@ln-system/balcao
       - name: Run Monitor independente tests (rede simulada; compila e roda node --test)
         run: npm test --workspace=@ln-system/monitor
+      - name: Run Relé Google Apps Script tests (arquivos .gs reais em contexto simulado; nenhuma rede, nenhum envio)
+        run: node --test integrations/google-apps-script/test/relay.test.js
 
   integration-tests:
     name: Integration Tests (real Postgres + Redis)

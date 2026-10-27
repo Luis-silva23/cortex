@@ -3,7 +3,7 @@
  * ALERT_SMS_SENDER_VERIFIED=true). Só envia com configuração completa; faltou qualquer item: NÃO envia nada e a central de alertas interna segue normal.
  * Limites por hora/dia/mês, deduplicação, disjuntor e registro vêm do núcleo comum (`channel-core`). "Enviado" aqui significa ACEITO pelo provedor, não entregue no aparelho.
  */
-import { smsConfig, sendSmsTwilio, type SmsConfig, type TransportDeps } from '@ln-system/shared/utils/alert-channels';
+import { smsAttempts, smsConfig, type SmsConfig, type TransportDeps } from '@ln-system/shared/utils/alert-channels';
 import { createBreaker, runChannel, type RunChannelResult } from './channel-core';
 
 export const smsBreaker = createBreaker();
@@ -36,6 +36,7 @@ export function sendSms(input: SendSmsInput, deps: SendDeps = {}): Promise<RunCh
     breaker: smsBreaker,
     now: deps.now,
     sleep: deps.sleep,
-    attemptsFor: (to) => [{ provider: 'twilio', run: () => sendSmsTwilio(env, to, input.text, { fetchImpl: deps.fetchImpl, timeoutMs: deps.timeoutMs }) }],
+    // provedores prontos: Twilio direto e/ou relé do Apps Script (id estável por notificação e hora: a repetição volta como `duplicate`, sem reenviar)
+    attemptsFor: (to) => smsAttempts(env, to, input.text, `${input.dedupeKey}:${Math.floor((deps.now ?? new Date()).getTime() / 3_600_000)}`, { fetchImpl: deps.fetchImpl, timeoutMs: deps.timeoutMs }),
   });
 }

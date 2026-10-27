@@ -4,7 +4,7 @@
 FROM node:20-alpine AS build
 WORKDIR /repo
 COPY tsconfig.json ./
-COPY packages/shared/utils/alert-channels.ts packages/shared/utils/request-signature.ts packages/shared/utils/
+COPY packages/shared/utils/alert-channels.ts packages/shared/utils/apps-script-relay.ts packages/shared/utils/request-signature.ts packages/shared/utils/
 COPY apps/monitor/package.json apps/monitor/tsconfig.json apps/monitor/
 COPY apps/monitor/src apps/monitor/src
 RUN npm install --no-save --no-audit --no-fund typescript@5 @types/node@20 \

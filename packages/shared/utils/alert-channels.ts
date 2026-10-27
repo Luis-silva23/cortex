@@ -13,6 +13,8 @@
  * Entrega confirmada exigiria o retorno (webhook/status callback) do provedor, que não está implementado.
  */
 
+import { makeRelayId, relayConfig, sendViaAppsScript } from './apps-script-relay';
+
 export type AlertChannel = 'EMAIL' | 'SMS' | 'WHATSAPP';
 
 export interface TransportDeps {
@@ -108,21 +110,43 @@ export function toTemplateParam(text: string, max = 900): string {
 // Configuração (só lê variáveis de ambiente; nunca imprime valores)
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 
+export type EmailProvider = 'resend' | 'apps-script';
+
 export interface EmailConfig {
+  /** Há pelo menos UM provedor pronto (Resend completo, ou relé do Apps Script pedido e válido). */
   configured: boolean;
+  /** Pendências (só quando nenhum provedor está pronto). */
   missing: string[];
   from: string | null;
   to: string[];
+  /** Provedores prontos, na ordem de tentativa (ALERT_EMAIL_PROVIDERS; padrão `apps-script,resend`: o gratuito primeiro, o Resend como alternativa). */
+  providers: EmailProvider[];
 }
 
-export function emailConfig(env: NodeJS.ProcessEnv): EmailConfig {
+/** O Resend, sozinho, está completo? (independe do relé) */
+function resendMissing(env: NodeJS.ProcessEnv): string[] {
   const missing: string[] = [];
   if (!present(env.RESEND_API_KEY)) missing.push('RESEND_API_KEY');
   if (!present(env.ALERT_EMAIL_FROM)) missing.push('ALERT_EMAIL_FROM');
   if (!present(env.ALERT_EMAIL_TO)) missing.push('ALERT_EMAIL_TO');
   if (env.RESEND_DOMAIN_VERIFIED?.trim().toLowerCase() !== 'true') missing.push('RESEND_DOMAIN_VERIFIED=true');
+  return missing;
+}
+
+export function emailConfig(env: NodeJS.ProcessEnv): EmailConfig {
+  const resendGaps = resendMissing(env);
+  const relay = relayConfig(env);
+  const ready: Record<EmailProvider, boolean> = { resend: resendGaps.length === 0, 'apps-script': relay.readyFor.email };
+  const order = (present(env.ALERT_EMAIL_PROVIDERS) ? env.ALERT_EMAIL_PROVIDERS : 'apps-script,resend')
+    .split(',')
+    .map((s) => s.trim().toLowerCase().replace('appsscript', 'apps-script'))
+    .filter((s, i, a): s is EmailProvider => (s === 'resend' || s === 'apps-script') && a.indexOf(s) === i);
+  // provedor pronto mas fora da lista de ordem entra no fim (nunca some em silêncio): o padrão preserva o Resend como alternativa
+  for (const p of ['apps-script', 'resend'] as EmailProvider[]) if (!order.includes(p)) order.push(p);
+  const providers = order.filter((p) => ready[p]);
   const to = present(env.ALERT_EMAIL_TO) ? env.ALERT_EMAIL_TO.split(',').map((s) => s.trim()).filter(Boolean) : [];
-  return { configured: missing.length === 0, missing, from: present(env.ALERT_EMAIL_FROM) ? env.ALERT_EMAIL_FROM.trim() : null, to };
+  const missing = providers.length > 0 ? [] : [...resendGaps, ...(relay.channels.includes('email') ? relay.missing : [])];
+  return { configured: providers.length > 0, missing, from: present(env.ALERT_EMAIL_FROM) ? env.ALERT_EMAIL_FROM.trim() : null, to, providers };
 }
 
 interface TwilioCreds {
@@ -155,13 +179,22 @@ export interface SmsConfig {
 export function smsConfig(env: NodeJS.ProcessEnv): SmsConfig {
   const missing: string[] = [];
   const tw = twilioCreds(env);
-  missing.push(...tw.missing);
-  if (!present(env.ALERT_SMS_FROM) && !present(env.TWILIO_MESSAGING_SERVICE_SID)) missing.push('ALERT_SMS_FROM (ou TWILIO_MESSAGING_SERVICE_SID)');
+  const relay = relayConfig(env);
+  const fromOk = present(env.ALERT_SMS_FROM) || present(env.TWILIO_MESSAGING_SERVICE_SID);
+  const twilioReady = tw.missing.length === 0 && fromOk;
+  const relayReady = relay.readyFor.sms;
+  // credenciais: direto no Twilio OU pelo relé do Apps Script (as credenciais do SMS ficam, nesse caso, nas propriedades do script, não aqui)
+  if (!twilioReady && !relayReady) {
+    missing.push(...tw.missing);
+    if (!fromOk) missing.push('ALERT_SMS_FROM (ou TWILIO_MESSAGING_SERVICE_SID)');
+    if (relay.channels.includes('sms')) missing.push(...relay.missing);
+  }
   const list = parsePhoneList(env.ALERT_SMS_TO);
   if (list.valid.length === 0) missing.push(list.invalid ? 'ALERT_SMS_TO (nenhum número válido)' : 'ALERT_SMS_TO');
   // declaração explícita do operador: o remetente está registrado/autorizado para enviar SMS no Brasil (as operadoras bloqueiam remetente não registrado)
   if (env.ALERT_SMS_SENDER_VERIFIED?.trim().toLowerCase() !== 'true') missing.push('ALERT_SMS_SENDER_VERIFIED=true');
-  return { configured: missing.length === 0, missing, providers: missing.length === 0 ? ['twilio'] : [], to: list.valid, invalidRecipients: list.invalid };
+  const providers: string[] = [...(twilioReady ? ['twilio'] : []), ...(relayReady ? ['apps-script'] : [])];
+  return { configured: missing.length === 0, missing, providers: missing.length === 0 ? providers : [], to: list.valid, invalidRecipients: list.invalid };
 }
 
 export interface WhatsappConfig {
@@ -169,21 +202,28 @@ export interface WhatsappConfig {
   /** Pendências por provedor (para a tela e a documentação). */
   missing: string[];
   /** Provedores prontos, na ordem de tentativa. */
-  providers: Array<'meta' | 'twilio'>;
+  providers: Array<'meta' | 'twilio' | 'apps-script'>;
   to: string[];
   invalidRecipients: number;
 }
 
 export function whatsappConfig(env: NodeJS.ProcessEnv): WhatsappConfig {
+  const relay = relayConfig(env);
+  type P = 'meta' | 'twilio' | 'apps-script';
   const order = (present(env.ALERT_WHATSAPP_PROVIDERS) ? env.ALERT_WHATSAPP_PROVIDERS : 'meta,twilio')
     .split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter((s): s is 'meta' | 'twilio' => s === 'meta' || s === 'twilio');
-  const ready: Array<'meta' | 'twilio'> = [];
+    .map((s) => s.trim().toLowerCase().replace('appsscript', 'apps-script'))
+    .filter((s): s is P => s === 'meta' || s === 'twilio' || s === 'apps-script');
+  // relé pedido e pronto para o WhatsApp entra no fim da ordem mesmo que a lista não o cite (os provedores diretos continuam primeiro)
+  if (relay.readyFor.whatsapp && !order.includes('apps-script')) order.push('apps-script');
+  const ready: P[] = [];
   const missing: string[] = [];
   for (const p of order) {
     const gaps: string[] = [];
-    if (p === 'meta') {
+    if (p === 'apps-script') {
+      if (!relay.channels.includes('whatsapp')) gaps.push('APPS_SCRIPT_CHANNELS (inclua whatsapp)');
+      gaps.push(...relay.missing);
+    } else if (p === 'meta') {
       if (!present(env.META_WHATSAPP_TOKEN)) gaps.push('META_WHATSAPP_TOKEN');
       if (!present(env.META_WHATSAPP_PHONE_NUMBER_ID)) gaps.push('META_WHATSAPP_PHONE_NUMBER_ID');
       if (!present(env.ALERT_WHATSAPP_TEMPLATE_NAME)) gaps.push('ALERT_WHATSAPP_TEMPLATE_NAME');
@@ -253,7 +293,8 @@ export interface EmailMessage {
 
 export function sendEmailResend(env: NodeJS.ProcessEnv, msg: EmailMessage, deps: TransportDeps = {}): Promise<TransportResult> {
   const cfg = emailConfig(env);
-  if (!cfg.configured) return Promise.resolve({ ok: false, provider: 'resend', error: 'not_configured', retryable: false });
+  // o Resend só envia com as credenciais DELE (o relé pronto sozinho não basta)
+  if (resendMissing(env).length > 0) return Promise.resolve({ ok: false, provider: 'resend', error: 'not_configured', retryable: false });
   return call(
     'resend',
     'https://api.resend.com/emails',
@@ -378,6 +419,43 @@ export async function sendWithFailover(attempts: ProviderAttempt[], opts: Failov
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 // Mensagem (texto único para os três canais)
 // ---------------------------------------------------------------------------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+// Tentativas por canal, na ORDEM de preferência configurada (um ponto só: a API e o monitor usam as mesmas funções)
+// ---------------------------------------------------------------------------------------------------------------------------------------------
+
+/** E-mail: provedores prontos, na ordem de ALERT_EMAIL_PROVIDERS. Com o relé desligado (padrão) é só o Resend, como sempre foi. */
+export function emailAttempts(env: NodeJS.ProcessEnv, msg: EmailMessage, deps: TransportDeps = {}): ProviderAttempt[] {
+  return emailConfig(env).providers.map((p) =>
+    p === 'resend'
+      ? { provider: 'resend', run: () => sendEmailResend(env, msg, deps) }
+      : {
+          provider: 'apps-script',
+          run: () =>
+            sendViaAppsScript(env, { channel: 'email', id: makeRelayId(['email', msg.idempotencyKey]), payload: { ...(msg.to && msg.to.length ? { to: msg.to } : {}), subject: msg.subject, text: msg.text } }, deps),
+        }
+  );
+}
+
+/** SMS para UM número: Twilio direto e/ou relé (nesta ordem). `idKey` estabiliza o identificador do relé entre as retentativas da mesma notificação. */
+export function smsAttempts(env: NodeJS.ProcessEnv, to: string, text: string, idKey: string, deps: TransportDeps = {}): ProviderAttempt[] {
+  return smsConfig(env).providers.map((p) =>
+    p === 'apps-script'
+      ? { provider: 'apps-script', run: () => sendViaAppsScript(env, { channel: 'sms', id: makeRelayId(['sms', idKey, to]), payload: { to, text: toSmsText(text) } }, deps) }
+      : { provider: 'twilio', run: () => sendSmsTwilio(env, to, text, deps) }
+  );
+}
+
+/** WhatsApp para UM número, na ordem de ALERT_WHATSAPP_PROVIDERS (Meta, Twilio e/ou relé). */
+export function whatsappAttempts(env: NodeJS.ProcessEnv, to: string, text: string, idKey: string, deps: TransportDeps = {}): ProviderAttempt[] {
+  return whatsappConfig(env).providers.map((p) =>
+    p === 'apps-script'
+      ? { provider: 'apps-script', run: () => sendViaAppsScript(env, { channel: 'whatsapp', id: makeRelayId(['whatsapp', idKey, to]), payload: { to, text: toTemplateParam(text) } }, deps) }
+      : p === 'meta'
+        ? { provider: 'meta-whatsapp', run: () => sendWhatsappMeta(env, to, text, deps) }
+        : { provider: 'twilio-whatsapp', run: () => sendWhatsappTwilio(env, to, text, deps) }
+  );
+}
 
 export type IncidentPhase = 'OPEN' | 'ESCALATED' | 'RECOVERED' | 'REMINDER';
 
