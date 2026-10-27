@@ -98,3 +98,15 @@ Preços de lista de referência, **não** cotação; `southamerica-east1` (São 
 3. Definir `PUBLIC_API_URL=https://api.<dominio>`, `WEB_URL`, `SUPER_ADMIN_URL`, `BALCAO_URL`; subir com a pilha de staging (`-f docker-compose.yml -f docker-compose.staging.yml`).
 4. `sh deploy/homologacao/validar-homologacao.sh --wal --tls <dominio>`; configurar a cópia externa; ensaiar a restauração em outro host.
 5. Só então criar o Super Admin e liberar para os primeiros clientes.
+
+## 11. Verificação de elegibilidade (2026-10-27) — só depois disso o Google Cloud é "disponível"
+
+**Estado: NÃO VERIFICADO.** O Google Cloud **não** deve ser tratado como disponível até os passos abaixo estarem confirmados pelo proprietário. Não contornar restrição da conta anterior, não alterar conta de faturamento existente, não pagar nada por este roteiro.
+
+1. Entrar com a **nova** conta Google em console.cloud.google.com e ler a oferta exibida (crédito de avaliação e/ou nível Always Free). O que o console mostrar vale mais que este documento.
+2. Se pedir ativação de faturamento: a ativação exige forma de pagamento. **Decisão do proprietário** — este projeto não ativa faturamento. Sem faturamento não há Compute Engine.
+3. Always Free (confirme na página oficial): VM e2-micro apenas em regiões dos EUA, ~1 GB/mês de saída, disco padrão limitado. Cabe API + Redis; **não** a pilha com PostgreSQL.
+4. Registrar: projeto criado? faturamento ativo? orçamento/alerta de gasto definido? cota de e2-micro na região?
+5. Se qualquer item bloquear: seguir a alternativa documentada (Oracle Always Free, `docker-compose.free.yml` + `deploy/oci/`) — ver [HOSPEDAGEM_GRATUITA](HOSPEDAGEM_GRATUITA.md).
+
+**Requisitos para implantar (sem valores):** projeto, faturamento (se exigido), Compute Engine habilitado, IP estático, domínio e DNS, regras de firewall 80/443 (22 só do seu IP), `.env` gerado por `deploy/oci/gen-env.sh`, chave `backup.key` no cofre, cópia externa de backup configurada. Sequência em §10.
